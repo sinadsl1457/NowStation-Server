@@ -9,6 +9,12 @@
 - JDK: 시스템 Java가 없어 Android Studio 내장 JDK를 쓴다
   `export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`
 
+## 배포
+- AWS 시드니 EC2 t3.micro(x86, 1GB + 스왑 2GB), Docker로 서버 + MySQL(`compose.prod.yaml`). 무료 플랜 계정이라 리전은 시드니 고정
+- 재배포: `NOWSTATION_HOST=<IP> scripts/deploy.sh`(맥에서 amd64 이미지를 만들어 ssh로 보냄. EC2에서 빌드하지 않는다: 메모리 부족)
+- 비밀 값은 EC2 `~/nowstation/.env`. EC2 IP는 저장소에 적지 않는다
+- 키: `~/.ssh/nowstation.pem`, SSH는 보안 그룹에서 내 IP만
+
 ## 외부 API — 서울시 실시간 열차 위치정보
 - `GET {base}/{key}/json/realtimePosition/{start}/{end}/{호선명}` (예: 2호선, 수인분당선, 신분당선)
 - 키는 "실시간 지하철 인증키"(일반 인증키와 별도). `.env`의 `SEOUL_SUBWAY_KEY`, 예시는 `.env.example`

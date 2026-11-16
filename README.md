@@ -4,7 +4,7 @@
 사람이 많아 안내 화면이 안 보이거나 이어폰 때문에 방송이 안 들릴 때, 폰만 켜면 현재역·다음역을 알 수 있게 합니다.
 지하에서는 GPS가 안 되기 때문에, 서버가 서울시 실시간 열차 위치를 받아 **사용자가 탄 열차를 찾아 따라갑니다.**
 
-> 진행 중(2026-11-16 ~ 11-22, 7일). 계획과 일정: [docs/PLAN.md](docs/PLAN.md)
+> 진행 중(2026-11-16 ~ 11-22, 7일). 서버는 AWS EC2(Docker)에 배포됨. 계획과 일정: [docs/PLAN.md](docs/PLAN.md)
 > 서버가 어떻게 켜지고, 요청이 어디로 지나가는지 처음부터: [docs/LEARNING.md](docs/LEARNING.md)
 
 ## 전체 구조
@@ -144,6 +144,9 @@ python3 scripts/demo/run_scenario.py yatap      # 약 7분
 cp .env.example .env          # 서울 열린데이터광장 "실시간 지하철 인증키"를 넣는다
 ./gradlew bootRun             # 로컬 MySQL은 Docker로 자동 실행된다
 ./gradlew test                # 테스트(Testcontainers로 MySQL을 띄운다)
+
+# 배포(AWS 시드니 EC2, Docker). 처음 준비와 제어 방법은 docs/LEARNING.md 10절
+NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh
 
 # 실제 운행 데이터 녹화(1시간, 3개 노선 20초 간격 ≈ 540건)
 ./gradlew bootRun --args='--recording.enabled=true --recording.duration=PT60M --server.port=8081'

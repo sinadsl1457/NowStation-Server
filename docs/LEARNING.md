@@ -7,17 +7,20 @@ Kotlin 서버를 처음 보는 사람을 위한 설명입니다. Android 앱은 
 
 ## 0. 먼저 지금 상태부터
 
-**이 서버는 아직 어디에도 배포되지 않았습니다.** 지금은 **내 맥에서만** 돌아갑니다.
+**서버는 AWS 시드니의 컴퓨터(EC2) 한 대에서 24시간 돌고 있습니다**(2026-11-16 배포). 개발할 때는 지금처럼 내 맥에서도 켤 수 있습니다.
 
 ```
-[에뮬레이터 속 앱] ──→ 10.0.2.2:8080 ──→ [내 맥에서 도는 서버 프로그램] ──→ 서울시 API(인터넷)
-                                              │
-                                              └──→ [내 맥의 Docker 안 MySQL]
+[폰·에뮬레이터 앱] ──→ http://<EC2 IP>:8080 ──→ [EC2 안 Docker: 서버] ──→ 서울시 API(인터넷)
+                                                   │
+                                                   └──→ [같은 EC2 안 Docker: MySQL]
+
+개발할 때:
+[에뮬레이터 앱] ──→ 10.0.2.2:8080 ──→ [내 맥의 서버(bootRun)] ──→ [내 맥 Docker의 MySQL]
 ```
 
 - 에뮬레이터 안에서 `10.0.2.2`는 "에뮬레이터를 띄운 컴퓨터(내 맥)"를 가리키는 특별한 주소입니다.
-- 그래서 맥에서 서버를 끄면 앱에 "서버에 연결할 수 없어요"가 뜹니다(3일차 끝에 실제로 겪은 일).
-- 인터넷 어디서나 접속되게 하는 일(배포)은 6일차에 합니다(→ 10절).
+- 앱이 어느 쪽에 붙을지는 앱의 `local.properties` → `API_BASE_URL` 한 줄로 정합니다.
+- 배포를 어떻게 했고, 어떻게 제어하는지는 10절에 있습니다.
 
 ---
 
@@ -349,37 +352,66 @@ curl -s localhost:8080/api/rides/<rideId>
 
 ---
 
-## 10. 배포: 아직 안 했고, 6일차에 할 일
+## 10. 배포: 어디에, 어떻게 올렸고 어떻게 제어하나
 
-지금 "서버를 어디서 제어하나"의 답은 **내 맥의 터미널**입니다. 배포는 이 프로그램을 **항상 켜져 있는 다른 컴퓨터(AWS)**로 옮기는 일입니다.
+### 무엇을 어디에
+| 무엇 | 값 | 왜 |
+|---|---|---|
+| 곳 | AWS **시드니**(ap-southeast-2) | 무료 플랜 계정은 처음 정해진 리전 하나만 쓸 수 있다. 서울은 유료 업그레이드가 필요했다. 앱은 5초에 한 번, 서버는 15초에 한 번 통신해서 왕복 0.3초 차이는 체감되지 않는다 |
+| 컴퓨터 | EC2 **t3.micro**(x86, 메모리 1GB, 디스크 20GB), Amazon Linux 2023 | 무료 플랜에서 쓸 수 있는 크기. 크레딧에서 한 달 약 8달러 |
+| 띄우는 법 | **Docker**로 서버 + MySQL(`compose.prod.yaml`) | 내 맥에서 확인한 것과 똑같은 상태로 뜬다 |
+| 메모리 | 서버 약 330MB + MySQL 약 220MB, 모자라면 **스왑 2GB** | 1GB가 빠듯해서 디스크 일부를 예비 메모리로 쓴다 |
+| 문 | 보안 그룹: SSH(22)는 **내 IP만**, 8080은 **어디서나** | 관리용 문은 나만, 앱용 문은 모두에게 |
+| 비밀 값 | EC2의 `~/nowstation/.env`(나만 읽기) | 서울시 키는 맥에서 복사, DB 비밀번호는 EC2에서 무작위로 생성. git에는 없다 |
 
-순서(계획):
+### 코드가 서버까지 가는 길 (`scripts/deploy.sh`)
+```
+[내 맥]                                               [EC2]
+1. ./gradlew test         테스트
+2. docker build           코드 → 이미지(서버 + Java가 든 상자)
+   --platform linux/amd64 맥은 Arm, EC2는 x86이라 EC2용으로 만든다
+3. docker save | ssh ───────────────────────────────→ docker load(이미지 받기)
+4.                                                    docker compose up -d server(새 이미지로 바꿔 켜기)
+5. curl /actuator/health  UP인지 확인
+```
+```bash
+NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh
+```
+- 이미지를 EC2에서 만들지 않고 맥에서 만들어 보낸다. 메모리 1GB로는 Gradle 빌드가 버티지 못하기 때문이다.
+- MySQL 컨테이너와 데이터(볼륨)는 건드리지 않는다. 서버만 바꿔 끼운다.
 
-1. **실행 파일 하나로 묶기**
-   - `./gradlew bootJar`를 돌리면 `build/libs/nowstation-server-*.jar` 하나가 나옵니다.
-   - 이 파일 하나에 우리 코드, Spring, Tomcat이 모두 들어 있습니다.
-   - Java만 있으면 `java -jar 그파일.jar`로 어디서든 켜집니다. 지금의 `bootRun`과 같은 일을, Gradle 없이 하는 것입니다.
-2. **AWS에 컴퓨터 빌리기**
-   - 서버 프로그램을 켤 컴퓨터를 하나 빌립니다(EC2).
-   - MySQL은 AWS가 관리해 주는 DB(RDS)를 쓰거나, 같은 컴퓨터에 Docker로 띄웁니다.
-3. **jar를 올리고 켜기**
-   - 키는 환경 변수로 넣습니다(7절).
-   - 꺼지면 자동으로 다시 켜지게 설정합니다.
-4. **인터넷에 문 열기**
-   - AWS 방화벽에서 8080번(또는 443번)을 엽니다.
-   - 공개 주소가 생깁니다(예: `http://13.x.x.x:8080`, 나중에는 도메인 + https).
-5. **앱 주소 바꾸기**
-   - 앱의 `local.properties`에서 `API_BASE_URL=<공개 주소>`로 바꿉니다.
-   - 지금은 이 값이 없어서 `10.0.2.2:8080`(내 맥)이 기본값입니다.
+### 서버를 제어하는 법
+모두 내 맥 터미널에서 합니다. `ssh`는 EC2에 원격으로 들어가 명령을 치는 것입니다.
 
-배포 뒤에는 서버를 제어하는 방법이 이렇게 바뀝니다:
-- 켜고 끄기는 AWS 컴퓨터에 원격 접속(SSH)해서 합니다.
-- 로그도 그 컴퓨터에서 봅니다.
-- 상태는 `<공개 주소>/actuator/health`로 확인합니다.
+```bash
+# 들어가기
+ssh -i ~/.ssh/nowstation.pem ec2-user@<EC2 IP>
 
-자세한 방법은 6일차에 이 문서에 이어서 적습니다.
+# (EC2 안에서) 상태·로그
+docker ps                                          # 서버·MySQL이 떠 있나
+docker logs nowstation-prod-server-1 --tail 50     # 서버 로그(받아 옴, 오류)
+docker logs -f nowstation-prod-server-1            # 계속 따라 보기(Ctrl+C로 나옴)
+free -m                                            # 메모리
 
----
+# (EC2 안에서) 켜고 끄기
+cd ~/nowstation
+docker compose -f compose.prod.yaml restart server # 서버만 다시 켜기
+docker compose -f compose.prod.yaml stop           # 모두 끄기(데이터는 남음)
+docker compose -f compose.prod.yaml up -d          # 모두 켜기
+```
+- 밖에서 살아 있는지만 볼 때는 `curl http://<EC2 IP>:8080/actuator/health`
+- EC2 컴퓨터 자체가 다시 켜져도(재부팅) Docker와 두 컨테이너는 저절로 다시 뜬다(`restart: unless-stopped`).
+- 크레딧을 아끼려면 AWS 콘솔 → EC2 → 인스턴스 → **인스턴스 중지**. 중지하면 컴퓨터 요금은 멈추지만, 다시 시작하면 **IP 주소가 바뀐다**(앱의 `API_BASE_URL`도 바꿔야 함).
+
+### 처음 한 번만 한 일(새 EC2를 만들 때)
+1. 콘솔에서 EC2 만들기(위 표의 값), 키 파일 `nowstation.pem` → `~/.ssh/`(`chmod 400`)
+2. EC2에 Docker·compose 설치, 스왑 2GB
+3. `~/nowstation/.env`에 `SEOUL_SUBWAY_KEY`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`
+4. `scripts/deploy.sh`
+
+### 아직 남은 것
+- **https가 없다.** 지금은 http + IP라서 앱의 개발용(debug) 빌드만 붙는다. 정식 배포하려면 도메인 + https(예: Nginx + Let's Encrypt, 또는 AWS 로드밸런서)가 필요하다.
+- 서버가 하루 호출 수를 메모리에서 센다. 재배포·재시작하면 0부터 다시 센다(여유분 50건으로 버팀).
 
 ## 11. Android ↔ 서버 대응표
 
