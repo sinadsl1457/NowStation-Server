@@ -19,6 +19,9 @@ class SubwayConfig {
     fun realtimePositionParser() = RealtimePositionParser()
 
     @Bean
+    fun stationMaps() = StationMaps.load()
+
+    @Bean
     fun seoulSubwayClient(
         builder: RestClient.Builder,
         @Value("\${seoul.subway.base-url}") baseUrl: String,
