@@ -24,6 +24,8 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	// Boot 4에서 RestClient.Builder 자동 설정이 별도 모듈로 나뉘었다(webmvc만으로는 생기지 않음)
+	implementation("org.springframework.boot:spring-boot-starter-restclient")
 	implementation("org.jetbrains.kotlin:kotlin-reflect")
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	developmentOnly("org.springframework.boot:spring-boot-docker-compose")
