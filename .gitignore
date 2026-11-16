@@ -48,3 +48,6 @@ recordings/
 
 ### 개인 공부 노트(저장소에는 올리지 않음) ###
 docs/LEARNING.md
+
+### IDE가 만드는 로컬 설정(SDK 경로 등) ###
+local.properties
