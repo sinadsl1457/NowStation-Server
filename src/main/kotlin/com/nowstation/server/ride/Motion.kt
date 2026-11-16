@@ -31,6 +31,9 @@ class MotionLog {
     /** [at] 시점의 마지막 상태. 기록이 없으면 null. */
     fun kindAt(at: Instant): MotionKind? = events.lastOrNull { it.at <= at }?.kind
 
+    /** [at] 이전(포함) 마지막으로 멈춘 시각. */
+    fun lastStopAtOrBefore(at: Instant): Instant? = events.lastOrNull { it.kind == MotionKind.STOPPED && it.at <= at }?.at
+
     /** [after] 뒤에 마지막으로 바뀐 상태. */
     fun lastAfter(after: Instant): MotionEvent? = events.lastOrNull { it.at > after }
 }

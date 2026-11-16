@@ -106,10 +106,13 @@ class RideSession(
     /**
      * 실제 출발이 있었을 수 있는 구간. 출발 상태를 받은 경우는 관측 직전 [RideRules.departureLookBack],
      * 다음 역에서 보고서야 안 경우(수인분당선)는 그 역에 온 것을 본 때부터다(실제 출발이 2분 넘게 앞설 수 있음).
+     * 다만 폰이 그 역에 와서 멈춘 뒤부터만 본다. 그 전 움직임은 이 역으로 들어오던 것이지 떠난 게 아니다.
      */
     private fun departureWindow(d: TrainEvent.Departed): Pair<Instant, Instant> {
-        val from = if (d.explicit || d.arrivedObservedAt == null) d.observedAt else d.arrivedObservedAt
-        return (from - rules.departureLookBack) to (d.observedAt + rules.departureLookAhead)
+        val base = if (d.explicit || d.arrivedObservedAt == null) d.observedAt else d.arrivedObservedAt
+        var from = base - rules.departureLookBack
+        motion.lastStopAtOrBefore(d.arrivedObservedAt ?: d.observedAt)?.let { stoppedHere -> if (stoppedHere > from) from = stoppedHere }
+        return from to (d.observedAt + rules.departureLookAhead)
     }
 
     private fun resolveAlighting(riding: RidePhase.Riding, now: Instant) {
