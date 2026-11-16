@@ -10,7 +10,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph Client["NowStation-Android (클라이언트, 3일차부터)"]
+    subgraph Client["NowStation-Android (클라이언트)"]
         A1[홈·탑승 화면]
         A2[움직임 감지<br/>가속도 센서]
         A3[잠금화면 진행 중 알림]
@@ -36,7 +36,7 @@ flowchart LR
 | 저장소 | 하는 일 | 상태 |
 |---|---|---|
 | **NowStation-Server** (이 저장소) | 실시간 데이터 받기, 탄 열차 찾기·따라가기, 현재역·다음역 계산, 앱에 알려 주기 | 진행 중 |
-| NowStation-Android | 시작 버튼, 움직임 감지, 잠금화면 표시 | 3일차부터 |
+| [NowStation-Android](https://github.com/sinadsl1457/NowStation-Android) | 시작 버튼, 움직임 감지, 잠금화면 표시 | 진행 중 |
 | NowStation-iOS | 같은 기능(잠금화면·다이내믹 아일랜드) | 다음 단계 |
 
 ## 서버 코드 지도
