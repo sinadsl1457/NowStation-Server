@@ -1,7 +1,6 @@
 package com.nowstation.server.ride
 
 import com.nowstation.server.subway.StationMaps
-import com.nowstation.server.subway.StationSummary
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotEmpty
@@ -20,6 +19,7 @@ import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import java.time.Instant
 
+data class StationResponse(val name: String, val lines: List<String>)
 data class StartRideRequest(@field:NotBlank val originStation: String, val destinationStation: String? = null)
 data class MotionRequest(@field:NotEmpty @field:Valid val events: List<MotionItem>, val sentAt: Instant)
 data class MotionItem(val kind: MotionKind, val at: Instant)
@@ -41,8 +41,10 @@ private fun RideView.toResponse(id: String) =
 @RequestMapping("/api")
 class RideController(private val rides: RideService, private val stations: StationMaps) {
 
+    /** 노선은 표시 이름(2호선, 수인분당선)으로 준다. 탑승 조회 응답과 같은 형식. */
     @GetMapping("/stations")
-    fun stations(@RequestParam(defaultValue = "") query: String): List<StationSummary> = stations.search(query)
+    fun stations(@RequestParam(defaultValue = "") query: String): List<StationResponse> =
+        stations.search(query).map { StationResponse(it.name, it.lines.map { line -> line.apiName }) }
 
     @PostMapping("/rides")
     @ResponseStatus(HttpStatus.CREATED)

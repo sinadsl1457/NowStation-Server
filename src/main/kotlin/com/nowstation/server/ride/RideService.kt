@@ -77,9 +77,9 @@ class RideService(
         }
     }.toSet()
 
-    /** [RidePoller]가 주기적으로 부른다. 필요한 노선만 받아 모든 탑승에 알린다. */
+    /** [RidePoller]가 주기적으로 부른다. 필요한 노선만 받아 모든 탑승에 알린다. 받아 온 노선을 돌려준다. */
     @Transactional
-    fun poll() {
+    fun poll(): Set<SubwayLine> {
         val lines = linesInUse()
         for (line in lines) {
             val (fetchedAt, result) = dataSource.fetch(line) ?: continue
@@ -92,6 +92,7 @@ class RideService(
             synchronized(s) { s.tick(now) }
             remember(s.id, s.phase)
         }
+        return lines
     }
 
     private fun remember(id: String, phase: RidePhase) {

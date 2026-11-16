@@ -99,6 +99,7 @@ class RideApiTest {
             status { isOk() }
             jsonPath("$[0].name") { value("선릉") }
             jsonPath("$[0].lines.length()") { value(2) }
+            jsonPath("$[0].lines[0]") { value("2호선") }
         }
     }
 
