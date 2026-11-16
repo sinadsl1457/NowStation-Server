@@ -1,0 +1,41 @@
+# 배포용: 서버 + MySQL을 한 컴퓨터에서. 개발용 compose.yaml(MySQL만, bootRun이 자동으로 띄움)과 따로 둔다.
+#   docker compose -f compose.prod.yaml up -d --build
+# 값은 같은 폴더의 .env에서 읽는다(.env.example 참고).
+name: nowstation-prod
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: nowstation
+      MYSQL_USER: nowstation
+      MYSQL_PASSWORD: ${DB_PASSWORD:?.env에 DB_PASSWORD가 필요하다}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?.env에 DB_ROOT_PASSWORD가 필요하다}
+    # 메모리 1GB 서버에 맞춰 MySQL이 기본으로 잡는 메모리를 줄인다
+    command: ["--performance-schema=OFF", "--innodb-buffer-pool-size=64M"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      retries: 20
+
+  server:
+    build: .
+    image: nowstation-server
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/nowstation
+      SPRING_DATASOURCE_USERNAME: nowstation
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SEOUL_SUBWAY_KEY: ${SEOUL_SUBWAY_KEY:?.env에 SEOUL_SUBWAY_KEY가 필요하다}
+    ports:
+      - "8080:8080"
+    mem_limit: 512m
+
+volumes:
+  mysql-data:
