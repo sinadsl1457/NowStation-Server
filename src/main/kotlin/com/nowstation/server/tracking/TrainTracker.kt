@@ -18,6 +18,8 @@ data class TrainState(
     val terminalStationId: String,
     val since: Instant,
     val lastSeen: Instant,
+    /** 이 역에 있는 것을 처음 본 시각(같은 역 안에서 진입→도착→출발로 바뀌어도 유지). */
+    val arrivedAt: Instant? = null,
 )
 
 /** 위치 변화에서 뽑은 사건. 시각은 모두 서버가 관측한 시각이다(실제보다 30~50초 늦다). */
@@ -28,7 +30,18 @@ sealed interface TrainEvent {
 
     data class Arrived(override val key: TrainKey, override val stationId: String, override val observedAt: Instant) : TrainEvent
 
-    data class Departed(override val key: TrainKey, override val stationId: String, override val observedAt: Instant) : TrainEvent
+    /**
+     * [explicit]: API가 출발 상태로 알려 줌(관측이 실제 출발보다 30~50초 늦음).
+     * false면 다음 역에서 보고서야 안 것(수인분당선)이라 실제 출발은 [arrivedObservedAt]~[observedAt] 사이 어딘가다.
+     * [arrivedObservedAt]: 그 역에 있는 것을 처음 본 시각(서버가 열차를 처음 본 게 그 역이면 그때).
+     */
+    data class Departed(
+        override val key: TrainKey,
+        override val stationId: String,
+        override val observedAt: Instant,
+        val explicit: Boolean,
+        val arrivedObservedAt: Instant?,
+    ) : TrainEvent
 }
 
 /**
@@ -50,18 +63,24 @@ class TrainTracker(private val forgetAfter: Duration = Duration.ofMinutes(5)) {
         for (p in positions) {
             val key = TrainKey(line, p.trainNo)
             val prev = states[key]
-            val current = TrainState(key, p.stationId, p.status, p.direction, p.terminalStationId, observedAt, observedAt)
+            val current = TrainState(key, p.stationId, p.status, p.direction, p.terminalStationId, observedAt, observedAt, arrivedAt = observedAt)
             when {
+                // 처음 보는 열차는 실제로 언제 왔는지 모르지만, 적어도 지금부터는 이 역에 있었다
                 prev == null -> states[key] = current
                 prev.stationId != p.stationId -> {
-                    if (prev.status != TrainStatus.DEPARTED) events += TrainEvent.Departed(key, prev.stationId, observedAt)
+                    if (prev.status != TrainStatus.DEPARTED) {
+                        events += TrainEvent.Departed(key, prev.stationId, observedAt, explicit = false, arrivedObservedAt = prev.arrivedAt)
+                    }
                     if (p.status != TrainStatus.DEPARTED) events += TrainEvent.Arrived(key, p.stationId, observedAt)
-                    else events += TrainEvent.Departed(key, p.stationId, observedAt)
+                    else events += TrainEvent.Departed(key, p.stationId, observedAt, explicit = true, arrivedObservedAt = null)
                     states[key] = current
                 }
                 prev.status != p.status -> {
-                    if (p.status == TrainStatus.DEPARTED) events += TrainEvent.Departed(key, p.stationId, observedAt)
-                    states[key] = current
+                    if (p.status == TrainStatus.DEPARTED) {
+                        events += TrainEvent.Departed(key, p.stationId, observedAt, explicit = true, arrivedObservedAt = prev.arrivedAt)
+                    }
+                    // 같은 역 안에서 진입→도착처럼 바뀐 것: 이 역에 온 시각은 그대로 둔다
+                    states[key] = current.copy(arrivedAt = prev.arrivedAt)
                 }
                 else -> states[key] = prev.copy(lastSeen = observedAt)
             }

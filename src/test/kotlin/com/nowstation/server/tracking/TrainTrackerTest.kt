@@ -34,7 +34,10 @@ class TrainTrackerTest {
         val events = tracker.update(SubwayLine.SUIN_BUNDANG, listOf(pos("1", "가천대", TrainStatus.ENTERING)), at(20))
 
         val key = TrainKey(SubwayLine.SUIN_BUNDANG, "1")
-        assertEquals(listOf(TrainEvent.Departed(key, "태평", at(20)), TrainEvent.Arrived(key, "가천대", at(20))), events)
+        assertEquals(
+            listOf(TrainEvent.Departed(key, "태평", at(20), explicit = false, arrivedObservedAt = at(0)), TrainEvent.Arrived(key, "가천대", at(20))),
+            events,
+        )
     }
 
     @Test
@@ -46,7 +49,7 @@ class TrainTrackerTest {
         val departed = tracker.update(SubwayLine.LINE_2, listOf(pos("2084", "선릉", TrainStatus.DEPARTED, SubwayLine.LINE_2)), at(20))
         val arrived = tracker.update(SubwayLine.LINE_2, listOf(pos("2084", "역삼", TrainStatus.ENTERING, SubwayLine.LINE_2)), at(40))
 
-        assertEquals(listOf(TrainEvent.Departed(key, "선릉", at(20))), departed)
+        assertEquals(listOf(TrainEvent.Departed(key, "선릉", at(20), explicit = true, arrivedObservedAt = at(0))), departed)
         assertEquals(listOf(TrainEvent.Arrived(key, "역삼", at(40))), arrived)
     }
 
@@ -71,5 +74,19 @@ class TrainTrackerTest {
         tracker.update(SubwayLine.SUIN_BUNDANG, emptyList(), at(301))
 
         assertNull(tracker.state(TrainKey(SubwayLine.SUIN_BUNDANG, "1")))
+    }
+
+    @Test
+    fun `출발 사건에 그 역에 온 것을 처음 본 시각을 담는다(진입에서 도착으로 바뀌어도 유지)`() {
+        val tracker = TrainTracker()
+        tracker.update(SubwayLine.SUIN_BUNDANG, listOf(pos("1", "모란", TrainStatus.ARRIVED)), at(0))
+        tracker.update(SubwayLine.SUIN_BUNDANG, listOf(pos("1", "태평", TrainStatus.ENTERING)), at(20))
+        tracker.update(SubwayLine.SUIN_BUNDANG, listOf(pos("1", "태평", TrainStatus.ARRIVED)), at(40))
+
+        val events = tracker.update(SubwayLine.SUIN_BUNDANG, listOf(pos("1", "가천대", TrainStatus.ENTERING)), at(160))
+
+        val departed = events.filterIsInstance<TrainEvent.Departed>().single()
+        assertEquals(at(20), departed.arrivedObservedAt)
+        assertEquals(false, departed.explicit)
     }
 }
