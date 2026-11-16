@@ -6,7 +6,7 @@
 지하에서는 GPS가 안 됩니다. 시간표로 추정하면 열차를 놓치거나 열차가 멈춰 서는 순간 틀립니다.
 그래서 서버가 **서울시 실시간 열차 위치**를 받아, 폰이 출발한 순간 그 역을 떠난 열차를 **사용자가 탄 열차**로 찾아 따라갑니다.
 
-클라이언트: [NowStation-Android](https://github.com/sinadsl1457/NowStation-Android) · 서버가 어떻게 돌아가는지 처음부터: [docs/LEARNING.md](docs/LEARNING.md)
+클라이언트: [NowStation-Android](https://github.com/sinadsl1457/NowStation-Android)
 
 <p align="center"><img src="docs/demo/nowstation-demo.gif" width="300" alt="태평에서 야탑까지: 탑승 감지, 다른 앱 위로 하차 알림"></p>
 
@@ -144,14 +144,25 @@ cp .env.example .env          # 서울 열린데이터광장 "실시간 지하�
 ./gradlew bootRun             # 로컬 MySQL은 Docker로 자동 실행
 ./gradlew test
 
-# 배포(AWS EC2, Docker). 처음 준비와 제어 방법은 docs/LEARNING.md 10절
+# 배포(AWS EC2, Docker). 처음 준비는 아래 "배포"
 NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh
 
 # 실제 운행 데이터 녹화(1시간, 3개 노선 20초 간격 ≈ 540건)
 ./gradlew bootRun --args='--recording.enabled=true --recording.duration=PT60M --server.port=8081'
 ```
 
+## 배포
+
+AWS EC2(t3.micro, x86, 메모리 1GB + 스왑 2GB) 한 대에 Docker로 서버 + MySQL(`compose.prod.yaml`).
+이미지는 맥에서 x86용으로 만들어 ssh로 보냅니다(1GB로는 서버에서 Gradle 빌드를 버티지 못함).
+
+처음 한 번:
+1. EC2 생성(Amazon Linux 2023), 보안 그룹: SSH는 내 IP만, 8080은 모두
+2. EC2에 Docker·compose 설치, 스왑 2GB
+3. EC2 `~/nowstation/.env`에 `SEOUL_SUBWAY_KEY`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`
+
+그다음부터는 `NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh`(테스트 → 이미지 → 보내기 → 서버만 바꿔 켜기 → health 확인).
+
 ## 문서
-- [docs/LEARNING.md](docs/LEARNING.md): 서버가 켜지는 과정, 요청 한 번의 길, 탑승 한 번을 시간 순서로, 배포·제어
 - [docs/PLAN.md](docs/PLAN.md): 7일 계획과 위험
 - [CLAUDE.md](CLAUDE.md): 실측한 데이터 사실, 구조 규칙, 작업 방식

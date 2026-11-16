@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 서버를 다시 배포한다: 맥에서 x86 이미지를 만들어 EC2로 보내고, 서버 컨테이너만 새 이미지로 바꿔 켠다(MySQL·데이터는 그대로).
 #   NOWSTATION_HOST=<EC2 퍼블릭 IP> scripts/deploy.sh
-# EC2 처음 준비(Docker 설치, ~/nowstation/.env)는 docs/LEARNING.md 10절.
+# EC2 처음 준비(Docker 설치, ~/nowstation/.env)는 README "배포".
 set -euo pipefail
 
 HOST="${NOWSTATION_HOST:?NOWSTATION_HOST=<EC2 퍼블릭 IP>가 필요하다}"
