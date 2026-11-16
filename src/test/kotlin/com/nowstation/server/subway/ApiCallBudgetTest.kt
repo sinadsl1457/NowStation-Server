@@ -38,4 +38,14 @@ class ApiCallBudgetTest {
         assertTrue(budget.tryUse())
         assertEquals(1, budget.usedToday())
     }
+
+    @Test
+    fun `남은 횟수와 서울 자정까지 남은 시간`() {
+        // 2026-11-16 22:00 KST
+        val budget = ApiCallBudget(Clock.fixed(Instant.parse("2026-11-16T13:00:00Z"), ZoneOffset.UTC), dailyLimit = 10, reserve = 2)
+        repeat(3) { budget.tryUse() }
+
+        assertEquals(5, budget.remaining())
+        assertEquals(java.time.Duration.ofHours(2), budget.untilReset())
+    }
 }

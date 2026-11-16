@@ -4,6 +4,7 @@ import com.nowstation.server.subway.StationMaps
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotEmpty
+import jakarta.validation.constraints.Size
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
@@ -21,7 +22,8 @@ import java.time.Instant
 
 data class StationResponse(val name: String, val lines: List<String>)
 data class StartRideRequest(@field:NotBlank val originStation: String, val destinationStation: String? = null)
-data class MotionRequest(@field:NotEmpty @field:Valid val events: List<MotionItem>, val sentAt: Instant)
+/** 앱은 끊긴 동안 쌓인 움직임을 최대 50개까지 한꺼번에 보낸다. 그보다 크면 잘못된 요청으로 본다. */
+data class MotionRequest(@field:NotEmpty @field:Size(max = 100) val events: List<MotionItem>, val sentAt: Instant)
 data class MotionItem(val kind: MotionKind, val at: Instant)
 
 /** 앱이 그대로 그리면 되는 모양. 노선은 표시 이름(2호선)으로 준다. */

@@ -113,6 +113,33 @@ class RideApiTest {
     }
 
     @Test
+    fun `앱 소식이 10분 넘게 없으면 탑승을 끝내고 그 노선을 더 받아 오지 않는다`() {
+        clock.now = kst("09:45:00")
+        val id = startRide("태평", null)
+        assertEquals(setOf(SubwayLine.SUIN_BUNDANG), rides.poll())
+
+        clock.now = kst("09:54:00") // 9분: 아직 살아 있음(앱이 지하에서 잠깐 끊겼을 수 있다)
+        mvc.get("/api/rides/$id").andExpect { status { isOk() } }
+        clock.now = kst("10:04:30") // 마지막 조회 뒤 10분 30초
+        val fetched = rides.poll()
+
+        assertEquals(emptySet(), fetched)
+        mvc.get("/api/rides/$id").andExpect { status { isNotFound() } }
+        assertEquals(kst("10:04:30"), records.findById(id).orElseThrow().endedAt)
+    }
+
+    @Test
+    fun `움직임을 한 번에 너무 많이 보내면 400`() {
+        clock.now = kst("09:45:00")
+        val id = startRide("태평", null)
+        val events = (1..101).joinToString(",") { """{"kind":"MOVING","at":"${kst("09:45:00")}"}""" }
+        mvc.post("/api/rides/$id/motion") {
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"events":[$events],"sentAt":"${kst("09:45:00")}"}"""
+        }.andExpect { status { isBadRequest() } }
+    }
+
+    @Test
     fun `한티에서 시작해 선릉 환승 후 강남 직전 알림까지 API로`() {
         clock.now = kst("09:45:00")
         val id = startRide("한티", "강남")

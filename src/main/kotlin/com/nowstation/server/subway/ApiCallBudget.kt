@@ -1,6 +1,7 @@
 package com.nowstation.server.subway
 
 import java.time.Clock
+import java.time.Duration
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicInteger
@@ -30,6 +31,20 @@ class ApiCallBudget(
     fun usedToday(): Int {
         rollOverIfNewDay()
         return used.get()
+    }
+
+    /** 오늘 더 부를 수 있는 횟수(여유분 제외). */
+    @Synchronized
+    fun remaining(): Int {
+        rollOverIfNewDay()
+        return (dailyLimit - reserve - used.get()).coerceAtLeast(0)
+    }
+
+    /** 한도가 다시 차는 서울 자정까지 남은 시간. */
+    fun untilReset(): Duration {
+        val now = clock.instant()
+        val midnight = LocalDate.ofInstant(now, SEOUL).plusDays(1).atStartOfDay(SEOUL).toInstant()
+        return Duration.between(now, midnight)
     }
 
     private fun rollOverIfNewDay() {

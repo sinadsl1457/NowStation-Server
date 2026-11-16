@@ -1,10 +1,14 @@
 package com.nowstation.server.ride
 
+import com.nowstation.server.subway.ApiCallBudget
+import com.nowstation.server.subway.PollPacing
 import com.nowstation.server.subway.PositionsResult
 import com.nowstation.server.subway.StationMaps
 import com.nowstation.server.subway.SubwayLine
 import com.nowstation.server.subway.TrainDataSource
 import com.nowstation.server.tracking.TrainTracker
+import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -19,16 +23,28 @@ class RideNotFoundException(id: String) : RuntimeException("없는 탑승: $id")
 /**
  * 진행 중인 탑승들과 열차 추적기 하나를 갖는다. 판단은 [RideSession], 여기는 연결·저장·받아 오기 대상 정하기.
  * 추적기는 모든 탑승이 같이 쓴다(같은 노선은 한 번만 받아 와 하루 한도를 아낀다).
+ *
+ * 하루 한도 지키기:
+ * - 앱이 [idleTimeout] 넘게 소식이 없으면(강제 종료, 폰 꺼짐) 탑승을 끝낸다. 안 그러면 아무도 안 보는 노선을 계속 받아 온다.
+ * - 남은 호출이 얼마 없으면 [PollPacing]으로 간격을 늘린다.
  */
 @Service
 class RideService(
     private val stationMaps: StationMaps,
     private val dataSource: TrainDataSource,
     private val records: RideRecordRepository,
+    private val budget: ApiCallBudget,
     private val clock: Clock,
+    @Value("\${ride.poll-interval:PT15S}") private val pollInterval: Duration = Duration.ofSeconds(15),
+    @Value("\${ride.idle-timeout:PT10M}") private val idleTimeout: Duration = Duration.ofMinutes(10),
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
     private val sessions = ConcurrentHashMap<String, RideSession>()
+    /** 앱이 마지막으로 물어본 시각(시작·움직임·조회). */
+    private val lastContact = ConcurrentHashMap<String, Instant>()
+    private val lastFetched = ConcurrentHashMap<SubwayLine, Instant>()
     private val tracker = TrainTracker()
+    @Volatile private var pacedInterval: Duration? = pollInterval
 
     @Transactional
     fun start(origin: String, destination: String?): Pair<String, RideView> {
@@ -37,6 +53,7 @@ class RideService(
         val id = UUID.randomUUID().toString()
         val now = Instant.now(clock)
         sessions[id] = RideSession(id, origin, destination, now, stationMaps)
+        lastContact[id] = now
         records.save(RideRecord(id, origin, destination, now))
         return id to view(id)
     }
@@ -48,6 +65,7 @@ class RideService(
     fun motion(id: String, events: List<Pair<MotionKind, Instant>>, sentAt: Instant): RideView {
         val session = session(id)
         val now = Instant.now(clock)
+        lastContact[id] = now
         synchronized(session) {
             for ((kind, at) in events) {
                 val age = Duration.between(at, sentAt).coerceAtLeast(Duration.ZERO)
@@ -60,12 +78,14 @@ class RideService(
     fun view(id: String): RideView {
         val session = session(id)
         val now = Instant.now(clock)
+        lastContact[id] = now
         return synchronized(session) { synchronized(tracker) { session.view(tracker, now) } }
     }
 
     @Transactional
     fun end(id: String) {
         sessions.remove(id) ?: throw RideNotFoundException(id)
+        lastContact.remove(id)
         records.findById(id).ifPresent { it.endedAt = Instant.now(clock) }
     }
 
@@ -80,19 +100,48 @@ class RideService(
     /** [RidePoller]가 주기적으로 부른다. 필요한 노선만 받아 모든 탑승에 알린다. 받아 온 노선을 돌려준다. */
     @Transactional
     fun poll(): Set<SubwayLine> {
-        val lines = linesInUse()
-        for (line in lines) {
-            val (fetchedAt, result) = dataSource.fetch(line) ?: continue
-            if (result !is PositionsResult.Ok) continue
-            val events = synchronized(tracker) { tracker.update(line, result.trains, fetchedAt) }
-            sessions.values.forEach { s -> synchronized(s) { s.onTrainEvents(events, fetchedAt) } }
-        }
         val now = Instant.now(clock)
+        expireIdle(now)
+        val lines = linesInUse()
+        val interval = PollPacing.interval(pollInterval, budget.remaining(), lines.size, budget.untilReset())
+        if (interval != pacedInterval) {
+            log.warn("하루 호출 한도: 남은 {}건 → 받아 오기 간격 {}", budget.remaining(), interval?.let { "${it.seconds}초" } ?: "오늘은 중단")
+            pacedInterval = interval
+        }
+        val fetched = mutableSetOf<SubwayLine>()
+        for (line in lines) {
+            if (interval == null) break
+            // 넉넉할 때는 스케줄러 간격 그대로, 늘렸을 때만 노선마다 마지막으로 받은 시각을 본다
+            val last = lastFetched[line]
+            if (interval > pollInterval && last != null && Duration.between(last, now) < interval) continue
+            lastFetched[line] = now
+            val (fetchedAt, result) = dataSource.fetch(line) ?: continue
+            fetched += line
+            when (result) {
+                is PositionsResult.Ok -> {
+                    val events = synchronized(tracker) { tracker.update(line, result.trains, fetchedAt) }
+                    sessions.values.forEach { s -> synchronized(s) { s.onTrainEvents(events, fetchedAt) } }
+                }
+                // 키 오류·한도 초과 등 서울시 쪽 문제. 탑승은 그대로 두고(새 소식 없음 → 2분 뒤 STALE) 원인을 남긴다
+                is PositionsResult.Failure -> log.warn("서울시 API 오류({}): {} {}", line.apiName, result.code, result.message)
+                PositionsResult.NoData -> Unit
+            }
+        }
         sessions.values.forEach { s ->
             synchronized(s) { s.tick(now) }
             remember(s.id, s.phase)
         }
-        return lines
+        return fetched
+    }
+
+    private fun expireIdle(now: Instant) {
+        val idle = lastContact.filterValues { Duration.between(it, now) > idleTimeout }.keys
+        for (id in idle) {
+            sessions.remove(id)
+            lastContact.remove(id)
+            records.findById(id).ifPresent { it.endedAt = now }
+            log.info("앱 소식이 {}분 넘게 없어 탑승 종료: {}", idleTimeout.toMinutes(), id)
+        }
     }
 
     private fun remember(id: String, phase: RidePhase) {
