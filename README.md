@@ -127,7 +127,6 @@ python3 scripts/demo/run_scenario.py yatap --mode=story --record  # 시연 영�
 
 - **움직임 판단 기준값은 실기기로 다시 맞춰야 합니다.** 센서 값은 합성 신호와 에뮬레이터 주입으로만 확인했습니다(`RideRules`, 앱의 `MotionRules` 한곳에 모음).
 - 노선은 2호선·수인분당선·신분당선 3개입니다. 역 데이터는 녹화와 대조해 만드는 스크립트(`scripts/build_stations.py`)로 늘릴 수 있습니다.
-- 배포는 http + IP입니다. 정식 배포에는 도메인과 https가 필요합니다.
 - 하루 호출 수를 메모리에서 셉니다(재시작하면 0부터, 여유분 50건).
 - iOS(잠금화면 Live Activity·다이내믹 아일랜드)는 다음 단계입니다.
 
@@ -153,13 +152,14 @@ NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh
 
 ## 배포
 
-AWS EC2(t3.micro, x86, 메모리 1GB + 스왑 2GB) 한 대에 Docker로 서버 + MySQL(`compose.prod.yaml`).
+AWS EC2(t3.micro, x86, 메모리 1GB + 스왑 2GB, 고정 IP) 한 대에 Docker로 서버 + MySQL + Caddy(`compose.prod.yaml`).
+https는 Caddy가 무료 주소(`<IP를 -로 이은>.sslip.io`)로 Let's Encrypt 인증서를 자동으로 받고 갱신합니다.
 이미지는 맥에서 x86용으로 만들어 ssh로 보냅니다(1GB로는 서버에서 Gradle 빌드를 버티지 못함).
 
 처음 한 번:
-1. EC2 생성(Amazon Linux 2023), 보안 그룹: SSH는 내 IP만, 8080은 모두
+1. EC2 생성(Amazon Linux 2023), 탄력적 IP 연결. 보안 그룹: SSH는 내 IP만, 80·443(https)·8080(개발용 http)은 모두
 2. EC2에 Docker·compose 설치, 스왑 2GB
-3. EC2 `~/nowstation/.env`에 `SEOUL_SUBWAY_KEY`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`
+3. EC2 `~/nowstation/.env`에 `SEOUL_SUBWAY_KEY`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`, `DOMAIN`
 
 그다음부터는 `NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh`(테스트 → 이미지 → 보내기 → 서버만 바꿔 켜기 → health 확인).
 

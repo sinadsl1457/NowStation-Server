@@ -16,7 +16,7 @@ echo "2/4 x86 이미지 만들기(EC2가 x86)"
 docker build -q --platform linux/amd64 -t nowstation-server:amd64 . >/dev/null
 
 echo "3/4 EC2로 보내기"
-scp -q -i "$KEY" compose.prod.yaml "ec2-user@$HOST:nowstation/"
+scp -q -i "$KEY" compose.prod.yaml Caddyfile "ec2-user@$HOST:nowstation/"
 docker save nowstation-server:amd64 | gzip | "${SSH[@]}" 'gunzip | docker load -q && docker tag nowstation-server:amd64 nowstation-server:latest'
 
 echo "4/4 서버 컨테이너 바꿔 켜기"

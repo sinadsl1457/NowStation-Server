@@ -10,7 +10,8 @@
   `export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`
 
 ## 배포
-- AWS 시드니 EC2 t3.micro(x86, 1GB + 스왑 2GB), Docker로 서버 + MySQL(`compose.prod.yaml`). 무료 플랜 계정이라 리전은 시드니 고정
+- AWS 시드니 EC2 t3.micro(x86, 1GB + 스왑 2GB, 탄력적 IP), Docker로 서버 + MySQL + Caddy(https, `compose.prod.yaml`). 무료 플랜 계정이라 리전은 시드니 고정
+- https 주소는 무료 `<IP를 -로>.sslip.io`(Caddy가 Let's Encrypt 자동 발급·갱신). 고정 IP가 바뀌면 주소도 바뀐다
 - 재배포: `NOWSTATION_HOST=<IP> scripts/deploy.sh`(맥에서 amd64 이미지를 만들어 ssh로 보냄. EC2에서 빌드하지 않는다: 메모리 부족)
 - 비밀 값은 EC2 `~/nowstation/.env`. EC2 IP는 저장소에 적지 않는다
 - 키: `~/.ssh/nowstation.pem`, SSH는 보안 그룹에서 내 IP만

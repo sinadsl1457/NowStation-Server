@@ -37,5 +37,24 @@ services:
       - "8080:8080"
     mem_limit: 512m
 
+  # https 앞문(정식 빌드 앱은 http를 쓰지 않는다). 80은 인증서 받을 때 필요
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      DOMAIN: ${DOMAIN:?.env에 DOMAIN이 필요하다}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    mem_limit: 64m
+
 volumes:
   mysql-data:
+  caddy-data:
+  caddy-config:
