@@ -5,6 +5,8 @@ import jakarta.persistence.Entity
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
 import java.time.Instant
 
 /** 탑승 기록(V1__create_ride.sql). 시작·끝과 마지막으로 따라간 열차·역. */
@@ -22,4 +24,9 @@ class RideRecord(
     @Column(name = "last_station") var lastStation: String? = null
 }
 
-interface RideRecordRepository : JpaRepository<RideRecord, String>
+interface RideRecordRepository : JpaRepository<RideRecord, String> {
+    /** 개인정보처리방침의 보관 기간이 지난 기록 지우기. 지운 수를 돌려준다. */
+    @Modifying
+    @Query("delete from RideRecord r where r.startedAt < :cutoff")
+    fun deleteStartedBefore(cutoff: Instant): Int
+}

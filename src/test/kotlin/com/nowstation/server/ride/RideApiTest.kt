@@ -40,6 +40,7 @@ class RideApiTest {
     @Autowired lateinit var rides: RideService
     @Autowired lateinit var clock: MovableClock
     @Autowired lateinit var records: RideRecordRepository
+    @Autowired lateinit var txManager: org.springframework.transaction.PlatformTransactionManager
 
     private val json = JsonMapper.builder().build()
 
@@ -126,6 +127,21 @@ class RideApiTest {
         assertEquals(emptySet(), fetched)
         mvc.get("/api/rides/$id").andExpect { status { isNotFound() } }
         assertEquals(kst("10:04:30"), records.findById(id).orElseThrow().endedAt)
+    }
+
+    @Test
+    fun `90일이 지난 탑승 기록만 지운다`() {
+        records.save(RideRecord("old", "태평", null, kst("09:00:00").minus(java.time.Duration.ofDays(91))))
+        records.save(RideRecord("recent", "태평", null, kst("09:00:00").minus(java.time.Duration.ofDays(89))))
+        clock.now = kst("09:00:00")
+
+        // 실제로는 Spring이 @Transactional로 감싼다. 테스트에서는 polling을 꺼서 빈이 없으므로 직접 감싼다
+        org.springframework.transaction.support.TransactionTemplate(txManager).execute {
+            RideRecordCleanup(records, clock, java.time.Duration.ofDays(90)).run()
+        }
+
+        assertEquals(false, records.existsById("old"))
+        assertEquals(true, records.existsById("recent"))
     }
 
     @Test
