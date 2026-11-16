@@ -11,6 +11,9 @@
 쓰는 법(NowStation-Server 폴더에서, 8080을 쓰는 다른 서버는 끄고):
   python3 scripts/demo/run_scenario.py transfer
   python3 scripts/demo/run_scenario.py missed
+  python3 scripts/demo/run_scenario.py yatap --mode=background   # 시작 뒤 YouTube를 앞에 띄움
+  python3 scripts/demo/run_scenario.py yatap --mode=locked       # 시작 뒤 PIN 잠금 + 화면 끔
+--mode=app(기본)은 앱 화면 글자를, background·locked는 시스템에 올라간 알림 글자를 확인한다.
 에뮬레이터에 NowStation 앱이 설치돼 있어야 한다.
 """
 import json
@@ -67,9 +70,9 @@ SCENARIOS = {
         "stops": ["09:47:45", "09:50:45"],
         "offline": [],
         "checks": [
-            ("09:46:30", "태평에서 기다림(6073 도착 중)", ["기다리는 역", "태평"]),
-            ("09:49:10", "6073 탑승 → 모란", ["수인분당선", "이번 역", "모란"]),
-            ("09:51:30", "야탑 직전 하차 알림", ["야탑", "내릴 준비하세요"]),
+            ("09:46:30", "태평에서 기다림(6073 도착 중)", ["기다리는 역", "태평"], ["태평역에서 기다리는 중"]),
+            ("09:49:10", "6073 탑승 → 모란", ["수인분당선", "이번 역", "모란"], ["이번 역 모란", "다음 역 야탑", "수인분당선"]),
+            ("09:51:30", "야탑 직전 하차 알림", ["야탑", "내릴 준비하세요"], ["곧 야탑, 내릴 준비하세요", "다음 역 이매"]),
         ],
     },
     "transfer": {
@@ -158,6 +161,38 @@ def start_ride(sc) -> None:
     raise SystemExit("시작 버튼을 못 찾았다")
 
 
+PIN = "1234"
+YOUTUBE = "com.google.android.youtube"
+
+
+def ride_notification() -> str:
+    """시스템에 올라가 있는 NowStation 진행 중 알림의 글자(제목 | 내용 | 노선). 앱 화면이 안 보일 때 확인용."""
+    dump = adb("shell", "dumpsys", "notification", "--noredact")
+    i = dump.find("pkg=com.nowstation.app")
+    if i < 0:
+        return ""
+    end = dump.find("NotificationRecord(", i + 10)
+    block = dump[i:end if end > 0 else len(dump)]
+    fields = [m.group(2) for m in re.finditer(r"android\.(title|text|subText)=\w+ \((.*)\)", block)]
+    return " | ".join(dict.fromkeys(fields))
+
+
+def screenshot(path: Path) -> None:
+    path.write_bytes(subprocess.run([ADB, "exec-out", "screencap", "-p"], capture_output=True, timeout=20).stdout)
+
+
+def nowstation_vibrations() -> int:
+    return adb("shell", "dumpsys", "vibrator_manager").count("com.nowstation.app")
+
+
+def unlock() -> None:
+    adb("shell", "locksettings", "clear", "--old", PIN)
+    adb("shell", "input", "keyevent", "224")
+    time.sleep(1)
+    adb("shell", "input", "swipe", "540", "1800", "540", "600", "200")
+    time.sleep(1)
+
+
 def http_json(path: str):
     with urllib.request.urlopen(SERVER + path, timeout=3) as r:
         return json.load(r)
@@ -190,9 +225,14 @@ def main() -> None:
     if name not in SCENARIOS:
         raise SystemExit(f"시나리오: {', '.join(SCENARIOS)}")
     sc = SCENARIOS[name]
-    out = ROOT / "build/demo" / name
+    mode = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--mode=")), "app")
+    if mode not in ("app", "background", "locked"):
+        raise SystemExit("--mode=app|background|locked")
+    if mode != "app" and any(len(c) < 4 for c in sc["checks"]):
+        raise SystemExit(f"{name}에는 알림 기대값이 없다(yatap만 background·locked 지원)")
+    out = ROOT / "build/demo" / (name if mode == "app" else f"{name}-{mode}")
     out.mkdir(parents=True, exist_ok=True)
-    print(f"[{name}] {sc['title']}")
+    print(f"[{name}] {sc['title']} / 모드: {mode}")
     # 맥이 잠자기에 들어가면 스크립트·에뮬레이터·서버가 같이 멈췄다가 시각이 어긋난다(실제로 한 번 실패). 끝날 때까지 깨워 둔다.
     subprocess.Popen(["caffeinate", "-is", "-w", str(os.getpid())])
 
@@ -202,6 +242,15 @@ def main() -> None:
         accel(0)
         network(True)
         start_ride(sc)
+        vibrations_before = nowstation_vibrations()
+        if mode == "background":
+            adb("shell", "monkey", "-p", YOUTUBE, "-c", "android.intent.category.LAUNCHER", "1")
+            time.sleep(3)
+            print("  YouTube를 앞에 띄움(NowStation은 뒤로)")
+        elif mode == "locked":
+            adb("shell", "locksettings", "set-pin", PIN)
+            adb("shell", "input", "keyevent", "223")
+            print("  PIN 잠금 + 화면 끔")
 
         replay_now = datetime.fromisoformat(http_json("/api/replay")["now"].replace("Z", "+00:00"))
         offset = replay_now.timestamp() - time.time()  # 녹화 속 시각 = 실제 시각 + offset
@@ -214,8 +263,8 @@ def main() -> None:
             events += [(kst(t) - timedelta(seconds=PUSH_SECONDS), "감속", -PUSH), (kst(t), "정차", 0.0)]
         for off, on in sc["offline"]:
             events += [(kst(off), "네트워크 끊김", False), (kst(on), "네트워크 복구", True)]
-        for i, (t, desc, expected) in enumerate(sc["checks"], 1):
-            events.append((kst(t), "확인", (i, desc, expected)))
+        for i, (t, desc, expected, *noti) in enumerate(sc["checks"], 1):
+            events.append((kst(t), "확인", (i, desc, noti[0] if mode != "app" else expected)))
         events.sort(key=lambda e: e[0])
 
         failures = 0
@@ -233,26 +282,44 @@ def main() -> None:
                 print(f"  {at:%H:%M:%S} {kind}")
             else:
                 i, desc, expected = value
-                texts = [t for t, _ in screen_nodes() if t]
+                if mode == "app":
+                    texts = [t for t, _ in screen_nodes() if t]
+                    shown = " | ".join(t for t in texts if t not in ("탑승 끝내기",))[:120]
+                    where = "화면"
+                else:
+                    shown = ride_notification()
+                    texts = [shown]
+                    where = "알림"
                 missing = [e for e in expected if not any(e in t for t in texts)]
-                adb_png = subprocess.run([ADB, "exec-out", "screencap", "-p"], capture_output=True, timeout=20).stdout
-                (out / f"{i:02d}.png").write_bytes(adb_png)
+                if mode == "locked":  # 사용자가 잠금 버튼을 눌러 화면을 켠 순간을 찍고 다시 끈다
+                    adb("shell", "input", "keyevent", "224")
+                    time.sleep(1.5)
+                    screenshot(out / f"{i:02d}.png")
+                    adb("shell", "input", "keyevent", "223")
+                else:
+                    screenshot(out / f"{i:02d}.png")
                 ok = not missing
                 failures += 0 if ok else 1
-                shown = " | ".join(t for t in texts if t not in ("탑승 끝내기",))[:120]
-                print(f"  {at:%H:%M:%S} {'통과' if ok else '실패'} {desc}\n           화면: {shown}"
+                print(f"  {at:%H:%M:%S} {'통과' if ok else '실패'} {desc}\n           {where}: {shown}"
                       + (f"\n           없음: {missing}" if missing else ""))
 
+        vibrated = nowstation_vibrations() - vibrations_before
+        print(f"  진동 기록: {vibrated}건")
         # 상태 표시줄 칩·진행 중 알림
-        adb("shell", "cmd", "statusbar", "expand-notifications")
-        time.sleep(1.5)
-        (out / "notification.png").write_bytes(
-            subprocess.run([ADB, "exec-out", "screencap", "-p"], capture_output=True, timeout=20).stdout)
-        adb("shell", "cmd", "statusbar", "collapse")
+        if mode != "locked":
+            adb("shell", "cmd", "statusbar", "expand-notifications")
+            time.sleep(1.5)
+            screenshot(out / "notification.png")
+            adb("shell", "cmd", "statusbar", "collapse")
         print(f"  결과: {len(sc['checks']) - failures}/{len(sc['checks'])} 통과, 스크린숏 {out}")
     finally:
         network(True)
         accel(0)
+        if mode == "locked":
+            unlock()
+        if mode != "app":
+            adb("shell", "am", "start", "-n", "com.nowstation.app/.MainActivity")
+            time.sleep(2)
         for text, b in screen_nodes():
             if text == "탑승 끝내기":
                 tap(b)
