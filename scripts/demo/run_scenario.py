@@ -13,7 +13,10 @@
   python3 scripts/demo/run_scenario.py missed
   python3 scripts/demo/run_scenario.py yatap --mode=background   # 시작 뒤 YouTube를 앞에 띄움
   python3 scripts/demo/run_scenario.py yatap --mode=locked       # 시작 뒤 PIN 잠금 + 화면 끔
---mode=app(기본)은 앱 화면 글자를, background·locked는 시스템에 올라간 알림 글자를 확인한다.
+  python3 scripts/demo/run_scenario.py yatap --mode=story --record  # 앱 화면 → 도중에 YouTube로 → 위로 하차 팝업, 화면 녹화
+--mode=app(기본)은 앱 화면 글자를, background·locked는 시스템에 올라간 알림 글자를 확인한다(story는 전환 뒤부터 알림).
+--record: 에뮬레이터 화면을 build/demo/<시나리오>/demo.webm으로 녹화한다.
+앱은 이 컴퓨터의 재생 서버를 봐야 한다: NowStation-Android에서 ./gradlew installDebug -PAPI_BASE_URL=http://10.0.2.2:8080/
 에뮬레이터에 NowStation 앱이 설치돼 있어야 한다.
 """
 import json
@@ -69,6 +72,7 @@ SCENARIOS = {
         "moves": ["09:47:05", "09:48:20"],
         "stops": ["09:47:45", "09:50:45"],
         "offline": [],
+        "switch_to_youtube": "09:50:00",
         "checks": [
             ("09:46:30", "태평에서 기다림(6073 도착 중)", ["기다리는 역", "태평"], ["태평역에서 기다리는 중"]),
             ("09:49:10", "6073 탑승 → 모란", ["수인분당선", "이번 역", "모란"], ["이번 역 모란", "다음 역 야탑", "수인분당선"]),
@@ -252,11 +256,15 @@ def main() -> None:
         raise SystemExit(f"시나리오: {', '.join(SCENARIOS)}")
     sc = SCENARIOS[name]
     mode = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--mode=")), "app")
-    if mode not in ("app", "background", "locked"):
-        raise SystemExit("--mode=app|background|locked")
+    if mode not in ("app", "background", "locked", "story"):
+        raise SystemExit("--mode=app|background|locked|story")
+    if mode == "story" and "switch_to_youtube" not in sc:
+        raise SystemExit(f"{name}에는 YouTube로 바꿀 시각이 없다(yatap만 story 지원)")
+    record = "--record" in sys.argv
     if mode != "app" and any(len(c) < 4 for c in sc["checks"]):
         raise SystemExit(f"{name}에는 알림 기대값이 없다(yatap만 background·locked 지원)")
     out = ROOT / "build/demo" / (name if mode == "app" else f"{name}-{mode}")
+    out.mkdir(parents=True, exist_ok=True)
     out.mkdir(parents=True, exist_ok=True)
     print(f"[{name}] {sc['title']} / 모드: {mode}")
     # 맥이 잠자기에 들어가면 스크립트·에뮬레이터·서버가 같이 멈췄다가 시각이 어긋난다(실제로 한 번 실패). 끝날 때까지 깨워 둔다.
@@ -267,6 +275,8 @@ def main() -> None:
     try:
         accel(0)
         network(True)
+        if record:
+            adb("emu", "screenrecord", "start", "--time-limit", "900", str(out / "demo.webm"))
         start_ride(sc)
         vibrations_before = nowstation_vibrations()
         if mode == "background":
@@ -289,12 +299,15 @@ def main() -> None:
             events += [(kst(t) - timedelta(seconds=PUSH_SECONDS), "감속", -PUSH), (kst(t), "정차", 0.0)]
         for off, on in sc["offline"]:
             events += [(kst(off), "네트워크 끊김", False), (kst(on), "네트워크 복구", True)]
+        if mode == "story":
+            events.append((kst(sc["switch_to_youtube"]), "YouTube로 전환", None))
         for i, (t, desc, expected, *noti) in enumerate(sc["checks"], 1):
-            events.append((kst(t), "확인", (i, desc, noti[0] if mode != "app" else expected)))
+            events.append((kst(t), "확인", (i, desc, (expected, noti[0] if noti else None))))
         events.sort(key=lambda e: e[0])
 
         failures = 0
         alert_seen = False
+        switched = False
         for at, kind, value in events:
             wait = at.timestamp() - offset - time.time()
             if wait > 0:
@@ -307,9 +320,15 @@ def main() -> None:
             elif kind.startswith("네트워크"):
                 network(value)
                 print(f"  {at:%H:%M:%S} {kind}")
+            elif kind == "YouTube로 전환":
+                adb("shell", "monkey", "-p", YOUTUBE, "-c", "android.intent.category.LAUNCHER", "1")
+                switched = True
+                print(f"  {at:%H:%M:%S} YouTube로 전환(NowStation은 뒤로)")
             else:
-                i, desc, expected = value
-                if mode == "app":
+                i, desc, (screen_expected, noti_expected) = value
+                by_screen = mode == "app" or (mode == "story" and not switched)
+                expected = screen_expected if by_screen else noti_expected
+                if by_screen:
                     texts = [t for t, _ in screen_nodes() if t]
                     shown = " | ".join(t for t in texts if t not in ("탑승 끝내기",))[:120]
                     where = "화면"
@@ -336,11 +355,17 @@ def main() -> None:
         # 상태 표시줄 칩·진행 중 알림
         if mode != "locked":
             adb("shell", "cmd", "statusbar", "expand-notifications")
-            time.sleep(1.5)
+            time.sleep(3 if record else 1.5)
             screenshot(out / "notification.png")
             adb("shell", "cmd", "statusbar", "collapse")
+        if record:
+            time.sleep(1)
+            adb("emu", "screenrecord", "stop")
+            print(f"  녹화: {out / 'demo.webm'}")
         print(f"  결과: {len(sc['checks']) - failures}/{len(sc['checks'])} 통과, 스크린숏 {out}")
     finally:
+        if record:  # 도중에 멈춰도 녹화는 끝낸다(이미 끝났으면 아무 일 없음)
+            adb("emu", "screenrecord", "stop")
         network(True)
         accel(0)
         if mode == "locked":

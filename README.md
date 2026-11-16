@@ -1,153 +1,157 @@
-# NowStation Server
+# NowStation Server (지금역)
 
 지하철에서 **지금 무슨 역인지**를 잠금화면에 보여 주는 앱 NowStation의 서버입니다.
-사람이 많아 안내 화면이 안 보이거나 이어폰 때문에 방송이 안 들릴 때, 폰만 켜면 현재역·다음역을 알 수 있게 합니다.
-지하에서는 GPS가 안 되기 때문에, 서버가 서울시 실시간 열차 위치를 받아 **사용자가 탄 열차를 찾아 따라갑니다.**
+사람이 많아 안내 화면이 안 보이거나 이어폰 때문에 방송이 안 들릴 때, 폰만 보면 현재역·다음역과 내릴 역 알림을 받을 수 있습니다.
 
-> 진행 중(2026-11-16 ~ 11-22, 7일). 서버는 AWS EC2(Docker)에 배포됨. 계획과 일정: [docs/PLAN.md](docs/PLAN.md)
-> 서버가 어떻게 켜지고, 요청이 어디로 지나가는지 처음부터: [docs/LEARNING.md](docs/LEARNING.md)
+지하에서는 GPS가 안 됩니다. 시간표로 추정하면 열차를 놓치거나 열차가 멈춰 서는 순간 틀립니다.
+그래서 서버가 **서울시 실시간 열차 위치**를 받아, 폰이 출발한 순간 그 역을 떠난 열차를 **사용자가 탄 열차**로 찾아 따라갑니다.
+
+클라이언트: [NowStation-Android](https://github.com/sinadsl1457/NowStation-Android) · 서버가 어떻게 돌아가는지 처음부터: [docs/LEARNING.md](docs/LEARNING.md)
+
+<p align="center"><img src="docs/demo/nowstation-demo.gif" width="300" alt="태평에서 야탑까지: 탑승 감지, 다른 앱 위로 하차 알림"></p>
+
+<p align="center"><sub>2026-11-16 오전에 녹화한 실제 열차 위치를 재생 서버로 흘리고, 에뮬레이터 센서에 열차 출발·정차를 넣어 찍은 장면(6분 23초 → 43초 요약, <a href="docs/demo/nowstation-demo.mp4">mp4</a>)</sub></p>
+
+## 핵심 아이디어: "어느 열차를 탔나"를 시간표가 아니라 실제 움직임으로
+
+```
+서울시 데이터   6073 태평 도착 09:46:55 ─────────── 6073 모란 진입 09:47:55 → "태평을 떠났다"
+폰 가속도 센서                  폰 출발 09:47:05 ↗
+서버 판단       6073이 태평을 떠난 앞뒤(09:44:55~09:48:10)에 폰도 출발했다 → 6073에 탔다
+```
+- **열차를 놓치면:** 그 열차가 떠날 때 폰은 가만히 있었으니 따라가지 않습니다.
+- **내리면(환승):** 내 열차는 떠났는데 폰이 가만히 있으면 내린 것으로 봅니다. 그 역에서 다음에 폰과 같이 출발한 열차를 따라갑니다(노선 무관).
+- **멈춰 서면:** 실제 위치를 보여 주니 "역 사이 정차"도 그대로 나옵니다.
+
+## 기술적으로 신경 쓴 부분
+
+| 문제 | 해결 |
+|---|---|
+| 지하에서는 GPS가 없고, 시간표로는 열차 놓침·지연·임시 정차를 반영하지 못함 | 실시간 열차 위치(서울시 API)와 폰 가속도 센서의 출발·정차 시각을 맞춰 **탄 열차를 찾아 따라감** |
+| 수인분당선은 "출발" 상태를 주지 않음 | 다음 역에 진입으로 보이는 순간으로 출발을 추정. 그만큼 늦게 알게 되므로 폰 출발을 찾는 범위를 그 역 도착부터 잡음(실제 녹화 데이터로 찾은 버그, 실패하는 테스트로 고정 후 수정) |
+| 데이터가 실제보다 30~50초 늦음(1일차 실측) | 내릴 역 알림을 "그 역에 다가가는 중"이 보이는 순간에 냄 |
+| 실시간 API 하루 1,000건 | 탑승 중인 사람이 있는 노선만, 같은 노선은 모든 탑승이 한 번만 받아 공유. 앱 소식이 10분 없으면 탑승 정리(강제 종료된 앱이 한도를 쓰지 않게). 남은 호출이 적으면 자정까지 버티게 간격을 늘림 |
+| 폰 시계가 서버와 다르고, 지하에서 끊겨 움직임이 늦게 올라옴 | 폰이 "보낸 시각과의 차이"만 믿어 서버 시각으로 바꿈. 늦게 온 움직임도 일어난 시각대로 판단 |
+| 실기기 없음(Android 실기기·유료 Apple 계정 없음) | 출근 시간 실제 응답을 녹화 → **서버 재생 모드**(시계·데이터 출처만 바꿔 끼움) + 에뮬레이터 센서·네트워크 조작 + 화면·알림 글자 자동 대조 |
+| 판단 규칙이 복잡해 Spring과 섞이면 테스트가 느리고 어려움 | 규칙(`RideSession`, `TrainTracker`, `StationMap`)은 순수 Kotlin, 시간은 주입한 `Clock`. 실제 녹화 데이터를 흘려 시나리오 테스트 |
+| 배포 서버 메모리 1GB, 맥(Arm)과 서버(x86) 구조가 다름 | 이미지는 맥에서 x86용으로 만들어 보냄(서버에서 Gradle 빌드 안 함). MySQL 버퍼·서버 메모리 한도, 스왑 2GB |
 
 ## 전체 구조
 
 ```mermaid
 flowchart LR
-    subgraph Client["NowStation-Android (클라이언트)"]
+    subgraph Client["NowStation-Android"]
         A1[홈·탑승 화면]
         A2[움직임 감지<br/>가속도 센서]
-        A3[잠금화면 진행 중 알림]
+        A3[진행 중 알림<br/>Live Update·하차 팝업]
     end
-    subgraph Server["NowStation-Server (이 저장소)"]
+    subgraph Server["NowStation-Server (이 저장소, AWS EC2 + Docker)"]
         S1[ride<br/>탑승 세션·탄 열차 찾기]
-        S2[tracking<br/>열차별 역 변화]
+        S2[tracking<br/>열차별 도착·출발]
         S3[subway<br/>API 클라이언트·역 데이터]
         S4[recording<br/>녹화·재생]
         DB[(MySQL)]
     end
     API[서울시 실시간<br/>열차 위치 API]
 
-    A1 -- 탑승 시작·출발역 --> S1
+    A1 -- 탑승 시작 --> S1
     A2 -- 출발/정차 시각 --> S1
-    S1 -- 현재역·다음역 --> A3
+    S1 -- 현재역·다음역·하차 알림 --> A3
     S1 --> S2 --> S3
-    S3 -- 탑승 중인 노선만 주기적으로 --> API
+    S3 -- 탑승 중인 노선만 15초마다 --> API
     S4 -. 녹화한 응답 재생 .-> S2
     S1 --- DB
 ```
-
-| 저장소 | 하는 일 | 상태 |
-|---|---|---|
-| **NowStation-Server** (이 저장소) | 실시간 데이터 받기, 탄 열차 찾기·따라가기, 현재역·다음역 계산, 앱에 알려 주기 | 진행 중 |
-| [NowStation-Android](https://github.com/sinadsl1457/NowStation-Android) | 시작 버튼, 움직임 감지, 잠금화면 표시 | 진행 중 |
-| NowStation-iOS | 같은 기능(잠금화면·다이내믹 아일랜드) | 다음 단계 |
 
 ## 서버 코드 지도
 
 ```
 src/main/kotlin/com/nowstation/server/
-├ NowstationServerApplication.kt   시작점
-├ subway/      ✅ 바깥(서울시 API)과 역 데이터
-│  ├ SeoulSubwayClient.kt        실시간 API 호출(원문 그대로 받아 옴)
-│  ├ RealtimePositionParser.kt   응답 → 열차 위치(노선마다 다른 응답을 한 모양으로)
-│  ├ ApiCallBudget.kt            하루 1,000건 한도 세기
-│  ├ StationMap(s).kt            노선별 역 순서, 다음 역 계산(2호선 순환·지선 포함)
-│  └ SubwayConfig.kt             위 객체들을 Spring에 등록
-├ recording/   ✅ 실제 응답 녹화·재생(실기기 없이 테스트·시연하려고)
-│  └ Replay*.kt                 재생 모드: 서버 시계를 녹화한 날로, 실시간 API 대신 녹화 응답
-├ tracking/    ✅ 받아 온 데이터에서 "열차 ○○이 언제 어느 역에 도착·출발" 사건을 만듦
-│  └ TrainTracker.kt             수인분당선처럼 출발 상태가 없으면 다음 역에서 보이는 순간으로 추정
-└ ride/        ✅ 탑승
-   ├ RideSession.kt              판단 규칙: 탄 열차 찾기(폰 출발 ↔ 열차 출발), 놓친 열차 무시, 환승, 현재역·다음역
-   ├ RideRules.kt                판단 기준값 한곳(실기기로 다시 맞출 것)
-   ├ RideService.kt              진행 중인 탑승들, 필요한 노선만 받아 오기, 기록 저장
-   ├ RidePoller.kt               탑승 중일 때만 15초마다
-   ├ RideController.kt           앱용 API
-   └ RideRecord.kt               탑승 기록(MySQL, Flyway로 테이블 생성)
-
-src/main/resources/
-├ application.properties     설정(키는 .env에서 읽음)
-├ db/migration/              테이블 만드는 SQL(Flyway)
-└ stations/*.json            노선별 역 순서(scripts/build_stations.py가 녹화와 대조해 생성)
-
-src/test/        규칙 테스트 + 녹화 데이터 재생 시나리오 테스트
-scripts/         녹화 분석, 역 데이터 생성(개발용 Python)
-docs/PLAN.md     계획·일정
+├ subway/      바깥(서울시 API)과 역 데이터
+│  ├ SeoulSubwayClient.kt        실시간 API 호출
+│  ├ RealtimePositionParser.kt   노선마다 다른 응답 → 열차 위치 한 모양
+│  ├ ApiCallBudget.kt, PollPacing.kt   하루 한도 세기, 남은 수로 간격 정하기
+│  └ StationMap(s).kt            노선별 역 순서, 다음 역(2호선 순환·지선 포함)
+├ tracking/    TrainTracker.kt   받아 온 데이터 → "열차 ○○이 언제 어느 역에 도착·출발"
+├ ride/        탑승
+│  ├ RideSession.kt              판단 규칙: 탄 열차 찾기, 놓친 열차 무시, 환승, 현재역·다음역
+│  ├ RideRules.kt                판단 기준값 한곳
+│  ├ RideService.kt              진행 중인 탑승들, 필요한 노선만 받아 오기, 버려진 탑승 정리
+│  ├ RidePoller.kt               탑승 중일 때만 15초마다
+│  ├ RideController.kt           앱용 API
+│  └ RideRecord.kt               탑승 기록(MySQL, Flyway)
+└ recording/   실제 응답 녹화와 재생 모드(Replay*.kt)
 ```
-
-의존 방향은 `ride → tracking → subway` 한 방향입니다. 아래쪽은 위쪽을 모릅니다.
-판단 규칙(다음 역, 탄 열차 찾기)은 Spring 없이 테스트할 수 있게 순수 Kotlin으로 둡니다.
+의존 방향은 `ride → tracking → subway` 한 방향입니다.
 
 ## API
 
 | 요청 | 하는 일 |
 |---|---|
-| `GET /api/stations?query=선릉` | 역 이름 검색 → `[{"name":"선릉","lines":["2호선","수인분당선"]}]` |
-| `POST /api/rides` `{"originStation":"태평","destinationStation":"강남"}` | 탑승 시작(내릴 역은 없어도 됨) |
-| `POST /api/rides/{id}/motion` `{"events":[{"kind":"MOVING","at":"…"}],"sentAt":"…"}` | 폰이 출발·정차한 시각. 폰 시계가 달라도 `sentAt`과의 차이로 맞춘다 |
-| `GET /api/rides/{id}` | `{"status":"MOVING","line":"2호선","thisStation":"강남","nextStation":"교대","prepareToAlight":true}` |
+| `GET /api/stations?query=선릉` | 역 검색 → `[{"name":"선릉","lines":["2호선","수인분당선"]}]` |
+| `POST /api/rides` `{"originStation":"태평","destinationStation":"야탑"}` | 탑승 시작(내릴 역은 선택) |
+| `POST /api/rides/{id}/motion` `{"events":[{"kind":"MOVING","at":"…"}],"sentAt":"…"}` | 폰이 출발·정차한 시각(끊긴 동안 쌓인 것을 한꺼번에) |
+| `GET /api/rides/{id}` | `{"status":"MOVING","line":"수인분당선","thisStation":"야탑","nextStation":"이매","prepareToAlight":true}` |
 | `DELETE /api/rides/{id}` | 탑승 종료 |
 
 `status`: `WAITING`(역에서 기다림) · `AT_STATION`(정차) · `MOVING`(이동) · `HOLDING_BETWEEN`(역 사이 정차) · `STALE`(2분 넘게 소식 없음)
 
-## 요청 하나의 흐름
+## 테스트와 시연
 
-1. 앱이 탑승을 시작합니다(`POST /api/rides`) → 탑승 세션이 생깁니다.
-2. 서버는 **탑승 중인 사람이 있을 때만, 필요한 노선만** 15초마다 받아(`subway`) 열차별 도착·출발을 만듭니다(`tracking`).
-3. 앱이 폰의 출발·정차 시각을 보내면(`…/motion`), 그 출발 즈음 기다리던 역을 떠난 열차를 **탄 열차**로 정합니다(`ride`).
-   열차를 놓쳤으면 그 열차가 떠날 때 폰이 멈춰 있었으니 무시하고, 내 열차가 떠날 때 폰이 멈춰 있었으면 내린 것(환승)으로 봅니다.
-4. 앱이 현재역·다음역을 받아 잠금화면에 보여 줍니다(`GET /api/rides/{id}`).
+**서버 테스트 51개**
+- 판단 규칙: 정상 탑승, 열차 놓침, 5분 임시 정차, 환승, 역 사이 정차, 데이터 끊김, 늦게 온 움직임, 하차 알림
+- 실제 녹화 데이터(2026-11-16 오전) 시나리오: 태평에서 6064 놓치고 6518 탑승 / 한티 → 선릉 하차 → 2호선 3154 → 강남 직전 알림
+- 통합(Spring + MySQL을 Testcontainers로): 위 환승을 API로 끝까지, 버려진 탑승 정리
+- 한도: 간격 계산, 서울 자정 기준 초기화
 
-## 테스트
-- 판단 규칙: 정상 탑승, 열차 놓침, 5분 임시 정차, 환승, 역 사이 정차, 데이터 끊김, 하차 알림
-- **실제 녹화 데이터 시나리오**(2026-11-16 오전): 태평에서 6064 놓치고 6518 탑승 / 한티→선릉 하차→2호선 3154 환승→강남 직전 알림
-- 통합: 서버+MySQL을 띄우고 녹화를 시계에 맞춰 돌려 위 환승을 API로 끝까지
-- **에뮬레이터 화면까지(시연 장치)**: 아래 "실기기 없이 화면까지 돌려 보기"
+**에뮬레이터 화면까지 (`scripts/demo/run_scenario.py`)**
 
-## 실기기 없이 화면까지 돌려 보기
+재생 모드 서버 + 녹화 시각에 맞춘 센서 주입 + 화면·알림 글자 대조를 한 번에 돌립니다.
 
-`scripts/demo/run_scenario.py`가 하는 일:
-1. 서버를 **재생 모드**로 켠다 → 서버 시계가 녹화한 날(2026-11-16 오전)의 시각으로 실제 속도로 흐르고, 서울시 API 대신 그 시각의 녹화 응답을 쓴다
-2. 에뮬레이터의 앱에서 역을 골라 탑승을 시작한다(adb로 누름)
-3. 녹화 속 시각에 맞춰 **가속도 센서 값을 넣는다**(출발 = 10초 가속, 도착 = 10초 감속) → 앱의 움직임 판단이 출발·정차를 잡아 서버로 보냄
-4. 지하 끊김은 에뮬레이터 Wi-Fi·데이터를 끈다
-5. 정해 둔 순간마다 **화면 글자를 읽어 기대값과 비교**하고 스크린숏을 남긴다(`build/demo/<시나리오>/`)
-
-| 시나리오 | 확인 지점 | 결과(2026-11-16) |
+| 시나리오 | 확인한 것 | 결과 |
 |---|---|---|
-| `missed` 태평에서 6064 놓치고 6518 탑승 | 기다림 → 6064 떠나도 기다림 → 가천대 정차·다음 역 복정 | 3/3 통과 |
-| `yatap` 태평에서 6073 → 모란 → 야탑 직전 알림 | 기다림 → 이번 역 모란·다음 역 야탑 → "내릴 준비하세요" | 3/3 통과 |
-| `yatap --mode=background` 시작 뒤 YouTube를 앞에 | 시스템 알림 글자: 기다림 → 이번 역 모란 → "곧 야탑, 내릴 준비하세요", 상태 표시줄 칩 "야탑", YouTube 위로 팝업 | 3/3 통과, 진동 1건, 팝업 확인 |
-| `yatap --mode=locked` 시작 뒤 PIN 잠금·화면 끔 | 같은 알림 글자 + 잠금화면 표시 | 3/3 통과, 진동 1건(팝업은 올라오지만 에뮬레이터 화면은 켜지지 않음) |
-| `transfer` 한티 → 선릉 하차(중간 끊김) → 2호선 → 강남 직전 알림 | 기다림 → 끊김 표시 → 선릉 환승 대기 → 역삼 → "내릴 준비하세요" + 진동 | 5/5 통과, 진동(알람 용도 1.6초) 기록 확인 |
+| `missed` | 6064가 왔다 가도 기다림 → 폰 출발에 6518 탑승 → 가천대 | 3/3 |
+| `yatap` | 기다림 → 이번 역 모란 → "내릴 준비하세요" | 3/3 |
+| `yatap --mode=background` | YouTube를 보는 중에도 알림 갱신, 상태 표시줄 칩, YouTube 위로 하차 팝업, 진동 | 3/3 |
+| `yatap --mode=locked` | 잠긴 폰에서 알림 갱신, 진동, 잠금화면 표시 | 3/3 |
+| `transfer` | 지하 끊김 표시 → 선릉 하차·환승 → 2호선 → 강남 직전 알림 | 5/5 |
 
 ```bash
-# 8080을 쓰는 서버는 끄고, 에뮬레이터에 앱을 설치한 뒤
-python3 scripts/demo/run_scenario.py transfer   # 약 10분(녹화 09:45~09:55를 실제 속도로)
-python3 scripts/demo/run_scenario.py missed     # 약 13분
-python3 scripts/demo/run_scenario.py yatap      # 약 7분
+# 앱은 이 컴퓨터의 재생 서버를 보게 설치: NowStation-Android에서
+#   ./gradlew installDebug -PAPI_BASE_URL=http://10.0.2.2:8080/
+python3 scripts/demo/run_scenario.py yatap                     # 약 7분(녹화를 실제 속도로)
+python3 scripts/demo/run_scenario.py yatap --mode=story --record  # 시연 영상 녹화
 ```
-실제 속도로 돌기 때문에 도중에 맥이 잠자기에 들어가면 시각이 어긋난다(실제로 한 번 실패) → 스크립트가 끝날 때까지 맥을 깨워 두고, 5초 넘게 늦은 단계가 있으면 멈춘다.
-한계: 센서 값은 깨끗한 계단 모양이라 실제 지하철 흔들림은 재현하지 못한다. 움직임 판단 기준값은 실기기로 다시 맞춰야 한다.
 
-## 확인한 데이터 사실 (1일차 실측)
-- 열차 상태는 진입·도착·출발. **수인분당선은 출발을 주지 않습니다.**
-- 데이터는 실제보다 보통 30~50초 늦습니다.
-- 역 ID는 노선 안에서 연속 번호라 역 순서를 데이터로 만들 수 있습니다.
-- 방향 값(`updnLine`)의 뜻을 녹화한 실제 이동 92건으로 확인했습니다.
+## 한계와 다음
 
-자세한 내용은 [CLAUDE.md](CLAUDE.md)에 있습니다.
+- **움직임 판단 기준값은 실기기로 다시 맞춰야 합니다.** 센서 값은 합성 신호와 에뮬레이터 주입으로만 확인했습니다(`RideRules`, 앱의 `MotionRules` 한곳에 모음).
+- 노선은 2호선·수인분당선·신분당선 3개입니다. 역 데이터는 녹화와 대조해 만드는 스크립트(`scripts/build_stations.py`)로 늘릴 수 있습니다.
+- 배포는 http + IP입니다. 정식 배포에는 도메인과 https가 필요합니다.
+- 하루 호출 수를 메모리에서 셉니다(재시작하면 0부터, 여유분 50건).
+- iOS(잠금화면 Live Activity·다이내믹 아일랜드)는 다음 단계입니다.
+
+## 기술 스택
+
+Kotlin · Spring Boot 4 (Web MVC, Data JPA, Validation, Actuator, Scheduling) · MySQL 8.4 · Flyway · Jackson 3 · RestClient · JUnit 5 · Testcontainers · Docker · AWS EC2
 
 ## 실행
 
 필요: JDK 25, Docker
 
 ```bash
-cp .env.example .env          # 서울 열린데이터광장 "실시간 지하철 인증키"를 넣는다
-./gradlew bootRun             # 로컬 MySQL은 Docker로 자동 실행된다
-./gradlew test                # 테스트(Testcontainers로 MySQL을 띄운다)
+cp .env.example .env          # 서울 열린데이터광장 "실시간 지하철 인증키"
+./gradlew bootRun             # 로컬 MySQL은 Docker로 자동 실행
+./gradlew test
 
-# 배포(AWS 시드니 EC2, Docker). 처음 준비와 제어 방법은 docs/LEARNING.md 10절
+# 배포(AWS EC2, Docker). 처음 준비와 제어 방법은 docs/LEARNING.md 10절
 NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh
 
 # 실제 운행 데이터 녹화(1시간, 3개 노선 20초 간격 ≈ 540건)
 ./gradlew bootRun --args='--recording.enabled=true --recording.duration=PT60M --server.port=8081'
 ```
+
+## 문서
+- [docs/LEARNING.md](docs/LEARNING.md): 서버가 켜지는 과정, 요청 한 번의 길, 탑승 한 번을 시간 순서로, 배포·제어
+- [docs/PLAN.md](docs/PLAN.md): 7일 계획과 위험
+- [CLAUDE.md](CLAUDE.md): 실측한 데이터 사실, 구조 규칙, 작업 방식
