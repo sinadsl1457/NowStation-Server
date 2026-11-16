@@ -1,0 +1,72 @@
+package com.nowstation.server.ride
+
+import com.nowstation.server.subway.StationMaps
+import com.nowstation.server.subway.StationSummary
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotEmpty
+import org.springframework.http.HttpStatus
+import org.springframework.http.ProblemDetail
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
+import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.ResponseStatus
+import org.springframework.web.bind.annotation.RestController
+import java.time.Instant
+
+data class StartRideRequest(@field:NotBlank val originStation: String, val destinationStation: String? = null)
+data class MotionRequest(@field:NotEmpty @field:Valid val events: List<MotionItem>, val sentAt: Instant)
+data class MotionItem(val kind: MotionKind, val at: Instant)
+
+/** 앱이 그대로 그리면 되는 모양. 노선은 표시 이름(2호선)으로 준다. */
+data class RideResponse(
+    val rideId: String,
+    val status: RideStatus,
+    val line: String?,
+    val thisStation: String?,
+    val nextStation: String?,
+    val prepareToAlight: Boolean,
+)
+
+private fun RideView.toResponse(id: String) =
+    RideResponse(id, status, line?.apiName, thisStation, nextStation, prepareToAlight)
+
+@RestController
+@RequestMapping("/api")
+class RideController(private val rides: RideService, private val stations: StationMaps) {
+
+    @GetMapping("/stations")
+    fun stations(@RequestParam(defaultValue = "") query: String): List<StationSummary> = stations.search(query)
+
+    @PostMapping("/rides")
+    @ResponseStatus(HttpStatus.CREATED)
+    fun start(@Valid @RequestBody request: StartRideRequest): RideResponse {
+        val (id, view) = rides.start(request.originStation.trim(), request.destinationStation?.trim()?.ifEmpty { null })
+        return view.toResponse(id)
+    }
+
+    @PostMapping("/rides/{id}/motion")
+    fun motion(@PathVariable id: String, @Valid @RequestBody request: MotionRequest): RideResponse =
+        rides.motion(id, request.events.map { it.kind to it.at }, request.sentAt).toResponse(id)
+
+    @GetMapping("/rides/{id}")
+    fun get(@PathVariable id: String): RideResponse = rides.view(id).toResponse(id)
+
+    @DeleteMapping("/rides/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun end(@PathVariable id: String) = rides.end(id)
+
+    @ExceptionHandler(UnknownStationException::class)
+    fun unknownStation(e: UnknownStationException): ResponseEntity<ProblemDetail> =
+        ResponseEntity.badRequest().body(ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.message ?: ""))
+
+    @ExceptionHandler(RideNotFoundException::class)
+    fun notFound(e: RideNotFoundException): ResponseEntity<ProblemDetail> =
+        ResponseEntity.status(HttpStatus.NOT_FOUND).body(ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.message ?: ""))
+}

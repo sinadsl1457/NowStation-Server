@@ -22,6 +22,10 @@ class SubwayConfig {
     fun stationMaps() = StationMaps.load()
 
     @Bean
+    fun trainDataSource(client: SeoulSubwayClient, parser: RealtimePositionParser): TrainDataSource =
+        LiveTrainDataSource(client, parser)
+
+    @Bean
     fun seoulSubwayClient(
         builder: RestClient.Builder,
         @Value("\${seoul.subway.base-url}") baseUrl: String,

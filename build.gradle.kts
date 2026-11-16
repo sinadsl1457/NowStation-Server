@@ -23,6 +23,9 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
+	// DB 테이블은 마이그레이션 파일(src/main/resources/db/migration)로 만든다
+	implementation("org.springframework.boot:spring-boot-starter-flyway")
+	implementation("org.flywaydb:flyway-mysql")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
 	// Boot 4에서 RestClient.Builder 자동 설정이 별도 모듈로 나뉘었다(webmvc만으로는 생기지 않음)
 	implementation("org.springframework.boot:spring-boot-starter-restclient")
