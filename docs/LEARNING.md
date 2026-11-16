@@ -335,6 +335,18 @@ curl -s localhost:8080/api/rides/<rideId>
 
 탑승을 시작해 두면 서버 로그에 15초마다 `받아 옴: 2호선, 수인분당선 (오늘 n건)`이 찍히고, 끝내면 멈춥니다(5절의 `linesInUse`).
 
+### 재생 모드: 같은 서버를 "그날 아침"으로 되돌려 켜기
+
+```bash
+./gradlew bootRun --args='--replay.enabled=true --replay.start=2026-11-16T09:42:00+09:00'
+```
+- 이렇게 켜면 두 부품만 바뀌어 끼워진다(3절의 부품 목록): **시계**(`Clock`)와 **열차 데이터 출처**(`TrainDataSource`).
+  - 시계: 지금을 그날 09:42로 보고 실제 속도로 흐른다
+  - 데이터 출처: 서울시 API 대신 그 시각까지 녹화된 응답
+- 나머지(Controller, RideService, 판단 규칙)는 한 줄도 다르지 않다. 처음부터 시각을 `Instant.now()`로 직접 읽지 않고 주입받은 `Clock`으로 읽게 만든 이유가 이것이다.
+- 어느 쪽을 끼울지는 `ReplayConfig`/`SubwayConfig`의 `@ConditionalOnProperty("replay.enabled")`가 정한다.
+- `scripts/demo/run_scenario.py`는 이 모드로 서버를 켜고 에뮬레이터 센서까지 맞춰 돌린다(README).
+
 ---
 
 ## 10. 배포: 아직 안 했고, 6일차에 할 일
