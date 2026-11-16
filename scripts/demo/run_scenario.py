@@ -165,16 +165,22 @@ PIN = "1234"
 YOUTUBE = "com.google.android.youtube"
 
 
+def nowstation_notifications() -> dict[int, str]:
+    """시스템에 올라가 있는 NowStation 알림들의 글자(알림 번호 → 제목 | 내용 | 노선). 앱 화면이 안 보일 때 확인용."""
+    found = {}
+    for record in adb("shell", "dumpsys", "notification", "--noredact").split("NotificationRecord(")[1:]:
+        m = re.match(r"0x[0-9a-f]+: pkg=com\.nowstation\.app user=\S+ id=(\d+) ", record)
+        if not m:
+            continue
+        fields = [f.group(2) for f in re.finditer(r"android\.(title|text|subText)=\w+ \((.*)\)", record)]
+        if fields:
+            found.setdefault(int(m.group(1)), " | ".join(dict.fromkeys(fields)))
+    return found
+
+
 def ride_notification() -> str:
-    """시스템에 올라가 있는 NowStation 진행 중 알림의 글자(제목 | 내용 | 노선). 앱 화면이 안 보일 때 확인용."""
-    dump = adb("shell", "dumpsys", "notification", "--noredact")
-    i = dump.find("pkg=com.nowstation.app")
-    if i < 0:
-        return ""
-    end = dump.find("NotificationRecord(", i + 10)
-    block = dump[i:end if end > 0 else len(dump)]
-    fields = [m.group(2) for m in re.finditer(r"android\.(title|text|subText)=\w+ \((.*)\)", block)]
-    return " | ".join(dict.fromkeys(fields))
+    """진행 중 알림(1번)."""
+    return nowstation_notifications().get(1, "")
 
 
 def screenshot(path: Path) -> None:
@@ -191,6 +197,26 @@ def unlock() -> None:
     time.sleep(1)
     adb("shell", "input", "swipe", "540", "1800", "540", "600", "200")
     time.sleep(1)
+
+
+def alert_posted() -> bool:
+    """내릴 역 팝업 알림(2번)."""
+    return 2 in nowstation_notifications()
+
+
+def wait_watching_alert(seconds: float, seen: bool, out: Path, offset: float) -> bool:
+    """기다리는 동안 1초마다 내릴 역 팝업 알림이 올라왔는지 보고, 올라온 순간 화면을 찍는다(팝업은 몇 초만 보인다)."""
+    end = time.time() + seconds
+    while time.time() < end:
+        if not seen and alert_posted():
+            seen = True
+            time.sleep(1.5)  # 팝업이 내려오는 동안
+            screenshot(out / "alert.png")
+            awake = "mWakefulness=Awake" in adb("shell", "dumpsys", "power")
+            replay_at = datetime.fromtimestamp(time.time() + offset, KST)
+            print(f"  {replay_at:%H:%M:%S} 내릴 역 팝업 알림 올라옴(화면 {'켜짐' if awake else '꺼짐'}) → alert.png")
+        time.sleep(min(1.0, max(0.0, end - time.time())))
+    return seen
 
 
 def http_json(path: str):
@@ -268,10 +294,11 @@ def main() -> None:
         events.sort(key=lambda e: e[0])
 
         failures = 0
+        alert_seen = False
         for at, kind, value in events:
             wait = at.timestamp() - offset - time.time()
             if wait > 0:
-                time.sleep(wait)
+                alert_seen = wait_watching_alert(wait, alert_seen, out, offset)
             elif wait < -LATE_LIMIT:
                 raise SystemExit(f"{at:%H:%M:%S} 단계가 {-wait:.0f}초 늦었다(맥 잠자기 등). 결과를 믿을 수 없어 멈춘다")
             if kind in ("가속", "가속 끝", "감속", "정차"):
@@ -303,6 +330,7 @@ def main() -> None:
                 print(f"  {at:%H:%M:%S} {'통과' if ok else '실패'} {desc}\n           {where}: {shown}"
                       + (f"\n           없음: {missing}" if missing else ""))
 
+        print(f"  내릴 역 팝업 알림: {'올라옴' if alert_seen else '없음'}")
         vibrated = nowstation_vibrations() - vibrations_before
         print(f"  진동 기록: {vibrated}건")
         # 상태 표시줄 칩·진행 중 알림
