@@ -95,6 +95,14 @@ class RideApiTest {
     }
 
     @Test
+    fun `서버가 지금 버전을 알려 준다(자동 배포가 적용 여부를 이것으로 확인)`() {
+        mvc.get("/actuator/info").andExpect {
+            status { isOk() }
+            jsonPath("$.app.version") { value("dev") } // 이미지에서는 APP_VERSION = 커밋 번호
+        }
+    }
+
+    @Test
     fun `역 검색은 이름으로 찾고 여러 노선에 있는 역은 한 번만`() {
         mvc.get("/api/stations?query=선릉").andExpect {
             status { isOk() }
