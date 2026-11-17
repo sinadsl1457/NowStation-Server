@@ -1,6 +1,7 @@
 package com.nowstation.server.ride
 
 import com.nowstation.server.subway.StationMaps
+import com.nowstation.server.subway.SubwayLine
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotEmpty
@@ -47,6 +48,10 @@ class RideController(private val rides: RideService, private val stations: Stati
     @GetMapping("/stations")
     fun stations(@RequestParam(defaultValue = "") query: String): List<StationResponse> =
         stations.search(query).map { StationResponse(it.name, it.lines.map { line -> line.apiName }) }
+
+    /** 지원하는 노선의 표시 이름. 역 검색 응답의 lines와 같은 이름. */
+    @GetMapping("/lines")
+    fun lines(): List<String> = SubwayLine.entries.map { it.apiName }
 
     @PostMapping("/rides")
     @ResponseStatus(HttpStatus.CREATED)

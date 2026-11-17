@@ -113,6 +113,15 @@ class RideApiTest {
     }
 
     @Test
+    fun `노선 목록은 지원하는 노선의 표시 이름`() {
+        mvc.get("/api/lines").andExpect {
+            status { isOk() }
+            jsonPath("$.length()") { value(3) }
+            jsonPath("$[0]") { value("2호선") }
+        }
+    }
+
+    @Test
     fun `모르는 역으로 시작하면 400, 없는 탑승은 404`() {
         mvc.post("/api/rides") {
             contentType = MediaType.APPLICATION_JSON

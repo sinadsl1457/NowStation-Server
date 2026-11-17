@@ -89,6 +89,7 @@ src/main/kotlin/com/nowstation/server/
 | 요청 | 하는 일 |
 |---|---|
 | `GET /api/stations?query=선릉` | 역 검색 → `[{"name":"선릉","lines":["2호선","수인분당선"]}]` |
+| `GET /api/lines` | 지원 노선 → `["2호선","수인분당선","신분당선"]` |
 | `POST /api/rides` `{"originStation":"태평","destinationStation":"야탑"}` | 탑승 시작(내릴 역은 선택) |
 | `POST /api/rides/{id}/motion` `{"events":[{"kind":"MOVING","at":"…"}],"sentAt":"…"}` | 폰이 출발·정차한 시각(끊긴 동안 쌓인 것을 한꺼번에) |
 | `GET /api/rides/{id}` | `{"status":"MOVING","line":"수인분당선","thisStation":"야탑","nextStation":"이매","prepareToAlight":true}` |
@@ -154,7 +155,7 @@ cp .env.example .env          # 서울 열린데이터광장 "실시간 지하�
 **main에 push하면 끝입니다.** 사람이 서버에 들어가지 않습니다.
 
 ```
-push ─→ [GitHub Actions] 테스트 53개 → 이미지(이름표 = 커밋 번호)를 GHCR에 올림
+push ─→ [GitHub Actions] 테스트 54개 → 이미지(이름표 = 커밋 번호)를 GHCR에 올림
                                                      │
         [EC2] 1분마다 "main 이미지가 바뀌었나?" ←──────┘  (pull 방식: GitHub은 서버에 들어오지 않음)
               바뀌었으면 받아서 서버만 교체 → 2분 안에 UP이 아니면 이전 이미지로 되돌림
