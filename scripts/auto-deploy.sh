@@ -26,7 +26,9 @@ TMP=$(mktemp -d)
 cid=$(docker create "$NEW")
 docker cp "$cid:/deploy/." "$TMP/"
 docker rm "$cid" >/dev/null
-rm -rf site.new && mv "$TMP/site" site.new && rm -rf site && mv site.new site
+# site는 Caddy가 폴더째 붙여 쓰고 있다. 폴더를 지우고 새로 만들면 Caddy는 지워진 옛 폴더를 계속 봐서(404)
+# 폴더는 두고 내용만 바꾼다(실제로 /privacy가 404가 나서 고침)
+mkdir -p site && find site -mindepth 1 -delete && cp -a "$TMP/site/." site/
 for f in compose.prod.yaml Caddyfile remote-deploy.sh auto-deploy.sh; do mv -f "$TMP/$f" "$f"; done
 rm -rf "$TMP"
 chmod +x remote-deploy.sh auto-deploy.sh
