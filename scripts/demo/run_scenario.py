@@ -151,8 +151,8 @@ def pick_station(name: str, keys: str) -> None:
 
 
 def start_ride(sc) -> None:
-    adb("shell", "am", "force-stop", "com.nowstation.app")
-    adb("shell", "am", "start", "-n", "com.nowstation.app/.MainActivity")
+    adb("shell", "am", "force-stop", APP_ID)
+    adb("shell", "am", "start", "-n", MAIN_ACTIVITY)
     time.sleep(3)
     pick_station(*sc["origin"])
     if sc["destination"]:
@@ -166,6 +166,9 @@ def start_ride(sc) -> None:
 
 
 PIN = "1234"
+# 기기에 설치되는 앱 ID(스토어 이름)와 코드 패키지가 다르다: com.nowstation.app은 Play에서 이미 다른 개발자가 씀
+APP_ID = "com.taektoy.nowstation"
+MAIN_ACTIVITY = f"{APP_ID}/com.nowstation.app.MainActivity"
 YOUTUBE = "com.google.android.youtube"
 
 
@@ -173,7 +176,7 @@ def nowstation_notifications() -> dict[int, str]:
     """시스템에 올라가 있는 NowStation 알림들의 글자(알림 번호 → 제목 | 내용 | 노선). 앱 화면이 안 보일 때 확인용."""
     found = {}
     for record in adb("shell", "dumpsys", "notification", "--noredact").split("NotificationRecord(")[1:]:
-        m = re.match(r"0x[0-9a-f]+: pkg=com\.nowstation\.app user=\S+ id=(\d+) ", record)
+        m = re.match(r"0x[0-9a-f]+: pkg=" + re.escape(APP_ID) + r" user=\S+ id=(\d+) ", record)
         if not m:
             continue
         fields = [f.group(2) for f in re.finditer(r"android\.(title|text|subText)=\w+ \((.*)\)", record)]
@@ -192,7 +195,7 @@ def screenshot(path: Path) -> None:
 
 
 def nowstation_vibrations() -> int:
-    return adb("shell", "dumpsys", "vibrator_manager").count("com.nowstation.app")
+    return adb("shell", "dumpsys", "vibrator_manager").count(APP_ID)
 
 
 def unlock() -> None:
@@ -371,7 +374,7 @@ def main() -> None:
         if mode == "locked":
             unlock()
         if mode != "app":
-            adb("shell", "am", "start", "-n", "com.nowstation.app/.MainActivity")
+            adb("shell", "am", "start", "-n", MAIN_ACTIVITY)
             time.sleep(2)
         for text, b in screen_nodes():
             if text == "탑승 끝내기":
