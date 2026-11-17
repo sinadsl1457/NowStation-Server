@@ -1,23 +1,22 @@
-# main에 push하면: 테스트 → 이미지(ECR) → EC2 교체(SSM) → https로 UP 확인. 실패하면 EC2가 이전 이미지로 되돌린다.
-# AWS 접근은 비밀 키 없이 GitHub OIDC로 그때그때 임시 권한을 받는다(infra/aws-setup.sh가 권한을 만든다).
+# main에 push하면: 테스트 → 이미지를 GHCR에 올림 → EC2가 1분 안에 가져가 교체(pull 방식) → 서버가 새 버전을 알려 주는지 확인.
+# GitHub은 서버에 들어가지 않는다(서버 접속 키·AWS 키 없음). EC2의 auto-deploy.sh가 새 이미지를 보고 스스로 바꾼다.
 name: 서버 테스트·배포
 
 on:
   push:
     branches: [main]
-  workflow_dispatch: # Actions 화면에서 손으로 다시 배포
+  workflow_dispatch: # Actions 화면에서 손으로 다시 돌리기
 
 permissions:
-  id-token: write # OIDC로 AWS 임시 권한 받기
   contents: read
+  packages: write # GHCR에 이미지 올리기(GitHub이 주는 임시 토큰)
 
 concurrency:
   group: deploy-production
-  cancel-in-progress: false # 배포 도중 끊지 않는다
+  cancel-in-progress: false
 
 env:
-  AWS_REGION: ap-southeast-2
-  ECR_REPOSITORY: nowstation-server
+  IMAGE: ghcr.io/sinadsl1457/nowstation-server
 
 jobs:
   test:
@@ -38,74 +37,31 @@ jobs:
           name: test-report
           path: build/reports/tests/test
 
-  deploy:
+  publish:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-
-      - name: AWS 임시 권한(OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: ECR 로그인
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: 이미지 만들어 올리기(이름표 = 커밋 번호)
-        id: image
+      - name: GHCR 로그인
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: 이미지 만들어 올리기(이름표 = 커밋 번호, 그리고 main)
         run: |
-          IMAGE="${{ steps.ecr.outputs.registry }}/${ECR_REPOSITORY}:${GITHUB_SHA}"
-          docker build -t "$IMAGE" .
-          docker push "$IMAGE"
-          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+          docker build --build-arg GIT_SHA="$GITHUB_SHA" -t "$IMAGE:$GITHUB_SHA" -t "$IMAGE:main" .
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:main"
 
-      - name: EC2에 새 이미지로 바꾸라고 전달(SSM)
-        id: ssm
-        env:
-          IMAGE: ${{ steps.image.outputs.uri }}
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+  verify:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: 서버가 새 버전으로 바뀌었는지(최대 8분)
         run: |
-          # EC2가 할 일: ECR 로그인 → 이미지 받기 → 이미지 안의 배포 파일 꺼내기 → 바꿔 켜기(실패하면 되돌리기)
-          cat > commands.json <<JSON
-          {"commands":[
-            "set -euo pipefail",
-            "cd /home/ec2-user/nowstation",
-            "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${REGISTRY}",
-            "docker pull ${IMAGE}",
-            "cid=\$(docker create ${IMAGE}) && docker cp \$cid:/deploy/. . && docker rm \$cid >/dev/null",
-            "chown -R ec2-user:ec2-user /home/ec2-user/nowstation",
-            "bash remote-deploy.sh ${IMAGE}"
-          ]}
-          JSON
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name AWS-RunShellScript \
-            --comment "deploy ${GITHUB_SHA::7}" \
-            --timeout-seconds 600 \
-            --parameters file://commands.json \
-            --query Command.CommandId --output text)
-          echo "SSM 명령: $CMD_ID"
-          for _ in $(seq 1 90); do
-            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
-            case "$STATUS" in Pending|InProgress|Delayed) sleep 5 ;; *) break ;; esac
+          # EC2가 1분마다 확인 → 받기·교체·기동에 1~3분. 안 바뀌면 되돌림·토큰 만료·타이머 멈춤 중 하나
+          for i in $(seq 1 48); do
+            V=$(curl -sf -m 5 "https://${{ vars.PUBLIC_HOST }}/actuator/info" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' || true)
+            if [ "$V" = "$GITHUB_SHA" ]; then echo "배포 확인: ${V:0:7} ($((i*10))초)"; exit 0; fi
+            sleep 10
           done
-          echo "--- EC2 출력 ---"
-          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text
-          echo "--- EC2 오류 출력 ---"
-          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text
-          echo "결과: $STATUS"
-          test "$STATUS" = "Success"
-
-      - name: 밖에서 https로 확인
-        run: |
-          for _ in $(seq 1 30); do
-            curl -sf -m 5 "https://${{ vars.PUBLIC_HOST }}/actuator/health" | grep -q '"UP"' && { echo "UP"; exit 0; }
-            sleep 2
-          done
-          echo "https health 확인 실패" >&2
+          echo "8분 안에 서버가 ${GITHUB_SHA:0:7}로 바뀌지 않음(지금: ${V:-응답 없음})." >&2
+          echo "EC2에서 확인: journalctl -u nowstation-deploy -n 50" >&2
           exit 1
