@@ -1,5 +1,13 @@
 # https 앞문: 인증서(Let's Encrypt)를 자동으로 받고 갱신해서 서버(8080)로 넘긴다.
 # DOMAIN은 .env에서(예: 13-237-105-89.sslip.io — IP가 들어간 무료 주소, 고정 IP 필요)
 {$DOMAIN} {
-	reverse_proxy server:8080
+	# Play 스토어에 올리는 개인정보처리방침
+	handle /privacy {
+		root * /srv
+		rewrite * /privacy.html
+		file_server
+	}
+	handle {
+		reverse_proxy server:8080
+	}
 }

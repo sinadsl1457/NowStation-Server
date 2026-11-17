@@ -23,7 +23,8 @@ services:
 
   server:
     build: .
-    image: nowstation-server
+    # 자동 배포(GitHub Actions)가 .env의 SERVER_IMAGE를 ECR 이미지(이름표 = 커밋 번호)로 바꾼다
+    image: ${SERVER_IMAGE:-nowstation-server:latest}
     restart: unless-stopped
     depends_on:
       mysql:
@@ -50,6 +51,7 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site:/srv:ro
       - caddy-data:/data
       - caddy-config:/config
     mem_limit: 64m
