@@ -143,25 +143,43 @@ cp .env.example .env          # 서울 열린데이터광장 "실시간 지하�
 ./gradlew bootRun             # 로컬 MySQL은 Docker로 자동 실행
 ./gradlew test
 
-# 배포(AWS EC2, Docker). 처음 준비는 아래 "배포"
-NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh
+# 배포는 main에 push하면 자동(아래 "배포")
 
 # 실제 운행 데이터 녹화(1시간, 3개 노선 20초 간격 ≈ 540건)
 ./gradlew bootRun --args='--recording.enabled=true --recording.duration=PT60M --server.port=8081'
 ```
 
-## 배포
+## 배포 (CI/CD)
 
-AWS EC2(t3.micro, x86, 메모리 1GB + 스왑 2GB, 고정 IP) 한 대에 Docker로 서버 + MySQL + Caddy(`compose.prod.yaml`).
+**main에 push하면 끝입니다.** 사람이 서버에 들어가지 않습니다.
+
+```
+push ─→ [GitHub Actions] 테스트 53개 → 이미지(이름표 = 커밋 번호)를 GHCR에 올림
+                                                     │
+        [EC2] 1분마다 "main 이미지가 바뀌었나?" ←──────┘  (pull 방식: GitHub은 서버에 들어오지 않음)
+              바뀌었으면 받아서 서버만 교체 → 2분 안에 UP이 아니면 이전 이미지로 되돌림
+                                                     │
+        [GitHub Actions] https /actuator/info의 버전이 이번 커밋이 될 때까지 확인 ─→ 초록 체크 / 빨간 X
+```
+
+| 결정 | 이유 |
+|---|---|
+| **pull 방식**(서버가 가져감) | GitHub에 서버 접속 키·AWS 키를 두지 않고, SSH는 내 IP만 열어 둔다. AWS 무료 플랜은 GitHub OIDC 연결(키 없는 push 방식)을 조직 정책으로 막는다 |
+| 실패한 버전 기억 | 되돌린 버전을 다음 확인 때 또 깔면 매분 끊긴다 → 그 커밋은 다시 시도하지 않음 |
+| GitHub이 버전으로 확인 | 서버의 읽기 토큰이 만료되거나 타이머가 멈추면 조용히 배포가 멈춘다 → 8분 안에 안 바뀌면 빨간 X |
+| 설정 파일도 이미지 안에 | compose·Caddyfile·정적 페이지·배포 스크립트를 이미지에 담아, 코드와 설정 버전이 항상 같게 |
+
+서버 구성: AWS EC2(t3.micro, x86, 메모리 1GB + 스왑 2GB, 고정 IP)에 Docker로 서버 + MySQL + Caddy(`compose.prod.yaml`).
 https는 Caddy가 무료 주소(`<IP를 -로 이은>.sslip.io`)로 Let's Encrypt 인증서를 자동으로 받고 갱신합니다.
-이미지는 맥에서 x86용으로 만들어 ssh로 보냅니다(1GB로는 서버에서 Gradle 빌드를 버티지 못함).
 
-처음 한 번:
-1. EC2 생성(Amazon Linux 2023), 탄력적 IP 연결. 보안 그룹: SSH는 내 IP만, 80·443(https)·8080(개발용 http)은 모두
+처음 한 번(새 EC2):
+1. EC2 생성(Amazon Linux 2023), 탄력적 IP 연결. 보안 그룹: SSH는 내 IP만, 80·443은 모두
 2. EC2에 Docker·compose 설치, 스왑 2GB
 3. EC2 `~/nowstation/.env`에 `SEOUL_SUBWAY_KEY`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`, `DOMAIN`
+4. `docker login ghcr.io`(GitHub classic 토큰, `read:packages`만)
+5. `scripts/auto-deploy.sh` → `~/nowstation/`, `infra/ec2/nowstation-deploy.{service,timer}` → `/etc/systemd/system/`, `systemctl enable --now nowstation-deploy.timer`
 
-그다음부터는 `NOWSTATION_HOST=<EC2 IP> scripts/deploy.sh`(테스트 → 이미지 → 보내기 → 서버만 바꿔 켜기 → health 확인).
+확인: `journalctl -u nowstation-deploy -n 50`(배포 기록), `systemctl list-timers nowstation-deploy`
 
 ## 문서
 - [docs/PLAN.md](docs/PLAN.md): 7일 계획과 위험

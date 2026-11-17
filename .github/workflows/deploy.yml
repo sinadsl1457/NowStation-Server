@@ -5,6 +5,10 @@ name: 서버 테스트·배포
 on:
   push:
     branches: [main]
+    # 문서만 바뀐 push는 배포하지 않는다(배포 때마다 서버가 20초쯤 끊김)
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch: # Actions 화면에서 손으로 다시 돌리기
 
 permissions:
