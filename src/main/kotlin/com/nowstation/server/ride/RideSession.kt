@@ -43,8 +43,10 @@ class RideSession(
     startedAt: Instant,
     private val stationMaps: StationMaps,
     private val rules: RideRules = RideRules(),
+    /** 배포 뒤 DB 기록으로 이어 갈 때의 단계. 폰 움직임·후보 열차 같은 짧은 기억은 새로 쌓는다. */
+    resumedPhase: RidePhase? = null,
 ) {
-    var phase: RidePhase = RidePhase.Waiting(originStationName, startedAt)
+    var phase: RidePhase = resumedPhase ?: RidePhase.Waiting(originStationName, startedAt)
         private set
 
     private val motion = MotionLog()

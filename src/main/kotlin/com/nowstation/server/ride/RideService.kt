@@ -6,6 +6,7 @@ import com.nowstation.server.subway.PositionsResult
 import com.nowstation.server.subway.StationMaps
 import com.nowstation.server.subway.SubwayLine
 import com.nowstation.server.subway.TrainDataSource
+import com.nowstation.server.tracking.TrainKey
 import com.nowstation.server.tracking.TrainTracker
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -54,7 +55,7 @@ class RideService(
         val now = Instant.now(clock)
         sessions[id] = RideSession(id, origin, destination, now, stationMaps)
         lastContact[id] = now
-        records.save(RideRecord(id, origin, destination, now))
+        records.save(RideRecord(id, origin, destination, now).also { write(it, sessions.getValue(id).phase, now) })
         return id to view(id)
     }
 
@@ -62,16 +63,21 @@ class RideService(
      * 폰 움직임. 폰 시계가 서버와 다를 수 있어 "보낸 시각과의 차이"만 믿는다:
      * 서버 시각 = 지금 - (폰이 보낸 시각 - 폰이 기록한 시각).
      */
+    @Transactional
     fun motion(id: String, events: List<Pair<MotionKind, Instant>>, sentAt: Instant): RideView {
         val session = session(id)
         val now = Instant.now(clock)
         lastContact[id] = now
-        synchronized(session) {
+        val phase = synchronized(session) {
+            val before = session.phase
             for ((kind, at) in events) {
                 val age = Duration.between(at, sentAt).coerceAtLeast(Duration.ZERO)
                 session.onMotion(MotionEvent(kind, now - age), now)
             }
+            session.phase.takeIf { it != before }
         }
+        // 단계가 바뀐 순간 바로 적는다(받아 오기 주기를 기다리다 배포되면 바뀐 걸 잃는다)
+        if (phase != null) remember(id, phase)
         return view(id)
     }
 
@@ -84,7 +90,8 @@ class RideService(
 
     @Transactional
     fun end(id: String) {
-        sessions.remove(id) ?: throw RideNotFoundException(id)
+        session(id) // 배포 뒤 처음 받은 요청이 끝내기여도 기록을 닫는다
+        sessions.remove(id)
         lastContact.remove(id)
         records.findById(id).ifPresent { it.endedAt = Instant.now(clock) }
     }
@@ -146,14 +153,49 @@ class RideService(
 
     private fun remember(id: String, phase: RidePhase) {
         val record = records.findById(id).orElse(null) ?: return
-        when (phase) {
-            is RidePhase.Riding -> {
-                record.lastLine = phase.train.line.name
-                record.lastTrainNo = phase.train.trainNo
-            }
-            is RidePhase.Waiting -> record.lastStation = phase.stationName
-        }
+        write(record, phase, lastContact[id])
     }
 
-    private fun session(id: String) = sessions[id] ?: throw RideNotFoundException(id)
+    private fun write(record: RideRecord, phase: RidePhase, contactAt: Instant?) {
+        when (phase) {
+            is RidePhase.Riding -> {
+                record.phase = "RIDING"
+                record.phaseSince = phase.since
+                record.lastLine = phase.train.line.name
+                record.lastTrainNo = phase.train.trainNo
+                record.boardedStationId = phase.boardedStationId
+            }
+            is RidePhase.Waiting -> {
+                record.phase = "WAITING"
+                record.phaseSince = phase.since
+                record.lastStation = phase.stationName
+            }
+        }
+        if (contactAt != null) record.lastContactAt = contactAt
+    }
+
+    /** 메모리에 없으면 배포로 서버가 바뀐 것일 수 있다 → DB 기록으로 이어 간다. */
+    private fun session(id: String): RideSession =
+        sessions[id]
+            // 같은 탑승의 요청 둘이 동시에 이어받으려 하면 먼저 넣은 쪽을 쓴다
+            ?: resume(id)?.let { sessions.putIfAbsent(id, it) ?: it }
+            ?: throw RideNotFoundException(id)
+
+    /** 끝나지 않았고 앱 소식이 [idleTimeout] 안에 있던 탑승만. */
+    private fun resume(id: String): RideSession? {
+        val r = records.findById(id).orElse(null) ?: return null
+        if (r.endedAt != null) return null
+        val now = Instant.now(clock)
+        if (Duration.between(r.lastContactAt ?: r.startedAt, now) > idleTimeout) return null
+        val since = r.phaseSince ?: r.startedAt
+        val line = r.lastLine?.let { runCatching { SubwayLine.valueOf(it) }.getOrNull() }
+        val phase = if (r.phase == "RIDING" && line != null && r.lastTrainNo != null) {
+            RidePhase.Riding(TrainKey(line, r.lastTrainNo!!), r.boardedStationId ?: "", since)
+        } else {
+            RidePhase.Waiting(r.lastStation ?: r.originStation, since)
+        }
+        lastContact[id] = now
+        log.info("배포 뒤 탑승 이어 감: {} {}", id, phase)
+        return RideSession(id, r.originStation, r.destinationStation, r.startedAt, stationMaps, resumedPhase = phase)
+    }
 }

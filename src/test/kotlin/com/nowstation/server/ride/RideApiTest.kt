@@ -41,6 +41,9 @@ class RideApiTest {
     @Autowired lateinit var clock: MovableClock
     @Autowired lateinit var records: RideRecordRepository
     @Autowired lateinit var txManager: org.springframework.transaction.PlatformTransactionManager
+    @Autowired lateinit var stationMaps: com.nowstation.server.subway.StationMaps
+    @Autowired lateinit var dataSource: TrainDataSource
+    @Autowired lateinit var budget: com.nowstation.server.subway.ApiCallBudget
 
     private val json = JsonMapper.builder().build()
 
@@ -202,6 +205,78 @@ class RideApiTest {
 
         mvc.delete("/api/rides/$id").andExpect { status { isNoContent() } }
         mvc.get("/api/rides/$id").andExpect { status { isNotFound() } }
+    }
+
+    /** 배포로 새로 켜진 서버: 메모리는 비어 있고 DB만 같다. */
+    private fun newServer() = RideService(stationMaps, dataSource, records, budget, clock)
+
+    private fun <T> inTx(block: () -> T): T =
+        org.springframework.transaction.support.TransactionTemplate(txManager).execute { block() }!!
+
+    @Test
+    fun `배포로 서버가 바뀌어도 타고 있던 열차를 이어서 따라간다`() {
+        clock.now = kst("09:45:00")
+        val id = startRide("한티", "강남")
+        motion(id, "STOPPED", "09:45:00")
+        pollUntil("09:47:10")
+        motion(id, "MOVING", "09:47:15")
+        motion(id, "STOPPED", at = "09:47:45", sentAt = "09:48:20")
+        pollUntil("09:51:40")
+        motion(id, "MOVING", "09:51:45")
+        pollUntil("09:52:35")
+        motion(id, "STOPPED", "09:52:40")
+        pollUntil("09:54:00")
+        motion(id, "MOVING", "09:54:05")
+        pollUntil("09:54:20") // 여기까지 옛 서버. 2호선 3154를 타고 있다
+
+        try {
+            val next = newServer()
+            clock.now = kst("09:54:40")
+            val view = next.view(id) // 새 서버는 장부(DB)를 보고 이어받는다
+            inTx { next.poll() }
+            val after = next.view(id)
+
+            assertEquals(SubwayLine.LINE_2, view.line)
+            assertEquals(SubwayLine.LINE_2, after.line)
+            assertEquals("강남", after.thisStation)
+            assertEquals(true, after.prepareToAlight)
+        } finally {
+            rides.end(id) // 같은 Spring 서버를 다른 테스트도 쓴다
+        }
+    }
+
+    @Test
+    fun `갈아타려고 기다리던 역도 이어 간다`() {
+        clock.now = kst("09:45:00")
+        val id = startRide("한티", "강남")
+        motion(id, "STOPPED", "09:45:00")
+        pollUntil("09:47:10")
+        motion(id, "MOVING", "09:47:15")
+        motion(id, "STOPPED", at = "09:47:45", sentAt = "09:48:20")
+        pollUntil("09:51:40") // 선릉에서 내려 2호선을 기다리는 중
+
+        try {
+            val view = newServer().view(id)
+
+            assertEquals(RideStatus.WAITING, view.status)
+            assertEquals("선릉", view.thisStation)
+        } finally {
+            rides.end(id)
+        }
+    }
+
+    @Test
+    fun `서버가 꺼진 사이 앱도 10분 넘게 소식이 없던 탑승은 이어 가지 않는다`() {
+        clock.now = kst("09:45:00")
+        val id = startRide("태평", null)
+        inTx { rides.poll() }
+
+        try {
+            clock.now = kst("09:56:00")
+            kotlin.test.assertFailsWith<RideNotFoundException> { newServer().view(id) }
+        } finally {
+            rides.end(id)
+        }
     }
 
     companion object {
