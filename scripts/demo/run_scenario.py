@@ -126,7 +126,7 @@ def edit_text_bounds() -> tuple[int, int, int, int]:
     xml = adb("shell", "cat", "/sdcard/nowstation_ui.xml")
     m = re.search(r'class="android.widget.EditText"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
     if not m:
-        raise SystemExit("홈 화면의 검색 칸을 못 찾았다")
+        raise SystemExit("역 검색 화면의 입력 칸을 못 찾았다")
     return tuple(int(v) for v in m.groups())
 
 
@@ -135,17 +135,26 @@ def tap(bounds) -> None:
     adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
 
 
-def pick_station(name: str, keys: str) -> None:
-    """검색 칸에 두벌식 자판 키로 입력하고(에뮬레이터 키보드가 한글) 목록에서 그 역을 누른다."""
+def tap_text(text: str) -> None:
+    for t, b in screen_nodes():
+        if t == text:
+            tap(b)
+            return
+    raise SystemExit(f"화면에서 '{text}'을(를) 못 찾았다")
+
+
+def pick_station(label: str, name: str, keys: str) -> None:
+    """홈의 칸([label])을 눌러 검색 화면을 열고, 두벌식 자판 키로 입력해(에뮬레이터 키보드가 한글) 그 역을 누른다."""
+    tap_text(label)
+    time.sleep(1.2)  # 검색 화면이 열리고 입력 칸에 커서가 간다
     screen_nodes()
     field = edit_text_bounds()
-    tap(field)
     adb("shell", "input", "text", keys)
     time.sleep(1.5)  # 입력이 멈추면 검색(0.25초) + 서버 응답
     for text, b in screen_nodes():
         if text == name and b[1] > field[3]:
             tap(b)
-            time.sleep(0.8)
+            time.sleep(0.8)  # 고르면 홈으로 돌아간다
             return
     raise SystemExit(f"검색 결과에 {name}이(가) 없다")
 
@@ -154,15 +163,11 @@ def start_ride(sc) -> None:
     adb("shell", "am", "force-stop", APP_ID)
     adb("shell", "am", "start", "-n", MAIN_ACTIVITY)
     time.sleep(3)
-    pick_station(*sc["origin"])
+    pick_station("타는 역", *sc["origin"])
     if sc["destination"]:
-        pick_station(*sc["destination"])
-    for text, b in screen_nodes():
-        if text == "시작":
-            tap(b)
-            time.sleep(2)
-            return
-    raise SystemExit("시작 버튼을 못 찾았다")
+        pick_station("내릴 역 (선택)", *sc["destination"])
+    tap_text("탑승 시작")
+    time.sleep(2)
 
 
 PIN = "1234"
