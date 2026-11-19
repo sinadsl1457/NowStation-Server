@@ -5,8 +5,8 @@ import com.nowstation.server.subway.StationMaps
 import com.nowstation.server.subway.SubwayLine
 import java.util.PriorityQueue
 
-/** 경로의 한 구간: [line]을 [heading] 쪽으로 [from]에서 [to]까지(환승역 또는 내릴 역). */
-data class Leg(val line: SubwayLine, val from: String, val to: String, val heading: Heading, val stops: Int)
+/** 경로의 한 구간: [line]을 [heading] 쪽으로 [from]에서 [to]까지(환승역 또는 내릴 역). [stations]는 지나는 역 이름(양 끝 포함). */
+data class Leg(val line: SubwayLine, val from: String, val to: String, val heading: Heading, val stops: Int, val stations: List<String> = listOf(from, to))
 
 data class Route(val legs: List<Leg>) {
     fun legOn(line: SubwayLine): Leg? = legs.firstOrNull { it.line == line }
@@ -76,9 +76,10 @@ object RoutePlanner {
             val toName = map.station(to.stationId)!!.name
             val lastLeg = legs.lastOrNull()
             if (lastLeg != null && lastLeg.line == from.line && lastLeg.heading == heading && lastLeg.to == map.station(from.stationId)!!.name) {
-                legs[legs.lastIndex] = lastLeg.copy(to = toName, stops = lastLeg.stops + 1)
+                legs[legs.lastIndex] = lastLeg.copy(to = toName, stops = lastLeg.stops + 1, stations = lastLeg.stations + toName)
             } else {
-                legs += Leg(from.line, map.station(from.stationId)!!.name, toName, heading, 1)
+                val fromName = map.station(from.stationId)!!.name
+                legs += Leg(from.line, fromName, toName, heading, 1, listOf(fromName, toName))
             }
         }
         return Route(legs)

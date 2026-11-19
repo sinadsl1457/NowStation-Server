@@ -18,6 +18,8 @@ class RoutePlannerTest {
         assertEquals(listOf("수인분당선 태평→선릉", "2호선 선릉→강남"), route("태평", "강남"))
         val first = RoutePlanner.plan(maps, "태평", "강남")!!.legs.first()
         assertEquals(Heading.DESCENDING, first.heading, "수인분당 왕십리 방면은 역 ID가 작아지는 쪽")
+        assertEquals(listOf("태평", "가천대", "복정", "수서", "대모산입구", "개포동", "구룡", "도곡", "한티", "선릉"), first.stations)
+        assertEquals(listOf("선릉", "역삼", "강남"), RoutePlanner.plan(maps, "태평", "강남")!!.legs[1].stations)
     }
 
     @Test

@@ -51,7 +51,8 @@ data class RideResponse(
     /** TRANSFER: 환승역에 도착(다음 구간 열차를 골라 둠). 잠깐만 온다. */
     val notice: String? = null,
 )
-data class LegResponse(val line: String, val from: String, val to: String)
+/** stations: 지나는 역(양 끝 포함). 앱의 전체 경로 막대. 노선도 응답의 leg에는 비워 둔다. */
+data class LegResponse(val line: String, val from: String, val to: String, val stations: List<String> = emptyList())
 
 /** 가로 노선도. stations는 구간 방향 순서, boardIndex는 타는 역 위치. 열차의 status: ENTERING(진입)·ARRIVED(도착)·DEPARTED(출발) 등. */
 data class TrainStripResponse(
@@ -72,7 +73,7 @@ data class StripTrainResponse(
 )
 data class ChooseTrainRequest(@field:NotBlank val line: String, @field:NotBlank val trainNo: String)
 
-private fun Leg.toResponse() = LegResponse(line.apiName, from, to)
+private fun Leg.toResponse() = LegResponse(line.apiName, from, to, stations)
 
 private fun RideView.toResponse(id: String, d: RideDetail) =
     RideResponse(id, status, line?.apiName, thisStation, nextStation, prepareToAlight,

@@ -11,6 +11,7 @@
 쓰는 법(NowStation-Server 폴더에서, 8080을 쓰는 다른 서버는 끄고):
   python3 scripts/demo/run_scenario.py transfer
   python3 scripts/demo/run_scenario.py missed
+  python3 scripts/demo/run_scenario.py rush       # 퇴근 시간 합성 데이터: 강남 → 태평(먼저 make_rush_hour.py)
   python3 scripts/demo/run_scenario.py yatap --mode=background   # 시작 뒤 YouTube를 앞에 띄움
   python3 scripts/demo/run_scenario.py yatap --mode=locked       # 시작 뒤 PIN 잠금 + 화면 끔
   python3 scripts/demo/run_scenario.py yatap --mode=story --record  # 앱 화면 → 도중에 YouTube로 → 위로 하차 팝업, 화면 녹화
@@ -43,12 +44,29 @@ PUSH_SECONDS = 10
 LATE_LIMIT = 5  # 이보다 늦게 실행된 단계가 있으면 시각이 어긋난 것
 
 
-def kst(hms: str) -> datetime:
-    return datetime.fromisoformat(f"{DAY}T{hms}+09:00")
+def kst(hms: str, day: str = DAY) -> datetime:
+    return datetime.fromisoformat(f"{day}T{hms}+09:00")
 
 
 # 폰 움직임 시각은 서버 RecordedScenarioTest와 같다(녹화 관측 시각에서 API 지연 30~50초를 뺀 값).
 SCENARIOS = {
+    "rush": {
+        "title": "퇴근 시간(합성 데이터) 강남 → 태평: 들어오는 열차 여러 대 중 골라 둔 열차를 따라가 선릉 환승, 태평 직전 하차 알림",
+        # 실제 녹화가 아니다: scripts/demo/make_rush_hour.py가 만든 18:00~18:40 데이터(2호선 2분 30초, 수인분당 4분 간격)
+        "day": "2026-11-20",
+        "replay_dir": "src/test/resources/scenarios/synthetic-2026-11-20-evening",
+        "start": "18:02:00",
+        "origin": ("강남", "rkdska"),
+        "destination": ("태평", "xovud"),
+        "moves": [],
+        "stops": [],
+        "offline": [],
+        "checks": [
+            ("18:03:00", "강남: 2호선 선릉 방면으로 들어오는 열차 여러 대, 다음 열차를 골라 따라감", ["따라가고 있어요", "선릉까지"]),
+            ("18:09:00", "선릉 도착 → 환승 안내, 수인분당 태평 방면 열차를 골라 둠", ["갈아타세요", "수인분당선", "태평 방면"]),
+            ("18:36:00", "태평 직전 하차 알림", ["태평", "내릴 준비하세요"]),
+        ],
+    },
     "missed": {
         "title": "태평에서 6064는 놓치고 6518에 탄다",
         "start": "09:42:00",
@@ -81,7 +99,7 @@ SCENARIOS = {
         ],
     },
     "transfer": {
-        "title": "한티에서 타고 선릉에서 2호선 환승, 강남 직전 하차 알림(중간에 지하 끊김)",
+        "title": "한티 → 강남: 골라 둔 열차를 따라가 선릉에서 환승 안내, 2호선으로 강남 직전 하차 알림(중간에 지하 끊김)",
         "start": "09:45:00",
         "origin": ("한티", "gksxl"),
         "destination": ("강남", "rkdska"),
@@ -90,10 +108,9 @@ SCENARIOS = {
         # 선릉 도착 정차를 끊긴 동안 감지 → 쌓였다가 연결되면 보냄
         "offline": [("09:47:30", "09:49:30")],
         "checks": [
-            ("09:46:30", "한티에서 기다림", ["기다리는 역", "한티"]),
+            ("09:46:30", "한티: 경로 구간과 따라갈 수인분당 열차(골라 둠)", ["한티 ▶ 선릉", "선릉 ▶ 강남", "따라가고 있어요"]),
             ("09:49:00", "지하 끊김: 마지막 상태 그대로 + 끊김 표시", ["연결 끊김"]),
-            ("09:51:20", "선릉에서 내림(6062가 떠날 때 폰은 멈춰 있음) → 환승 대기", ["기다리는 역", "선릉"]),
-            ("09:53:30", "2호선 3154 탑승", ["이번 역", "역삼", "2호선"]),
+            ("09:50:30", "따라가던 열차가 선릉에 옴 → 환승 안내, 2호선 강남 방면 열차를 골라 둠", ["갈아타세요", "2호선", "강남 방면"]),
             ("09:54:50", "강남 직전 하차 알림", ["강남", "내릴 준비하세요"]),
         ],
     },
@@ -236,13 +253,15 @@ def http_json(path: str):
         return json.load(r)
 
 
-def start_server(start: datetime, log_path: Path) -> subprocess.Popen:
+def start_server(start: datetime, log_path: Path, replay_dir: str | None = None) -> subprocess.Popen:
     try:
         http_json("/actuator/health")
         raise SystemExit("8080에 이미 서버가 떠 있다. 끄고 다시 실행(재생 모드 서버를 이 스크립트가 띄운다)")
     except OSError:
         pass
     args = f"--replay.enabled=true --replay.start={start.isoformat()} --ride.poll-interval=PT5S"
+    if replay_dir:
+        args += f" --replay.directory={replay_dir}"
     env = {**os.environ, "JAVA_HOME": JAVA_HOME}
     proc = subprocess.Popen(
         ["./gradlew", "bootRun", "-q", f"--args={args}"],
@@ -279,7 +298,8 @@ def main() -> None:
     subprocess.Popen(["caffeinate", "-is", "-w", str(os.getpid())])
 
     # 서버가 켜지고 앱을 누르는 동안(약 20초)도 녹화 시계가 흐르므로 그만큼 앞에서 시작한다
-    server = start_server(kst(sc["start"]) - timedelta(seconds=20), out / "server.log")
+    day = sc.get("day", DAY)
+    server = start_server(kst(sc["start"], day) - timedelta(seconds=20), out / "server.log", sc.get("replay_dir"))
     try:
         accel(0)
         network(True)
@@ -302,15 +322,15 @@ def main() -> None:
 
         events = []
         for t in sc["moves"]:  # 출발: 그 시각부터 가속
-            events += [(kst(t), "가속", PUSH), (kst(t) + timedelta(seconds=PUSH_SECONDS), "가속 끝", 0.0)]
+            events += [(kst(t, day), "가속", PUSH), (kst(t, day) + timedelta(seconds=PUSH_SECONDS), "가속 끝", 0.0)]
         for t in sc["stops"]:  # 도착: 그 시각에 감속이 끝나게
-            events += [(kst(t) - timedelta(seconds=PUSH_SECONDS), "감속", -PUSH), (kst(t), "정차", 0.0)]
+            events += [(kst(t, day) - timedelta(seconds=PUSH_SECONDS), "감속", -PUSH), (kst(t, day), "정차", 0.0)]
         for off, on in sc["offline"]:
-            events += [(kst(off), "네트워크 끊김", False), (kst(on), "네트워크 복구", True)]
+            events += [(kst(off, day), "네트워크 끊김", False), (kst(on, day), "네트워크 복구", True)]
         if mode == "story":
-            events.append((kst(sc["switch_to_youtube"]), "YouTube로 전환", None))
+            events.append((kst(sc["switch_to_youtube"], day), "YouTube로 전환", None))
         for i, (t, desc, expected, *noti) in enumerate(sc["checks"], 1):
-            events.append((kst(t), "확인", (i, desc, (expected, noti[0] if noti else None))))
+            events.append((kst(t, day), "확인", (i, desc, (expected, noti[0] if noti else None))))
         events.sort(key=lambda e: e[0])
 
         failures = 0
