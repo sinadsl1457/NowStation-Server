@@ -194,9 +194,13 @@ class RideSession(
         val heading = map.heading(state.direction) ?: Heading.ASCENDING
         val here = map.station(state.stationId)
         val next = map.next(state.stationId, heading, state.terminalStationId)
-        // 수인분당선은 출발 상태가 없다 → 열차가 이 역에 온 걸 본 뒤 폰이 움직이기 시작했으면 출발로 본다
+        // 출발은 공공 데이터보다 폰이 먼저 안다(수인분당선은 출발 상태를 아예 주지 않음):
+        // - 데이터가 이 역 도착을 보인 뒤 폰이 움직이기 시작했거나
+        // - 폰이 이 역에서 섰다가 다시 움직였으면(데이터가 도착을 늦게 보여 줘 폰 정차·출발이 먼저 와도) 떠난 것으로 본다
+        val seenHere = state.arrivedAt ?: state.since
         val departed = state.status == TrainStatus.DEPARTED ||
-            (state.status == TrainStatus.ARRIVED && motion.movingStartsBetween(state.since, now).isNotEmpty())
+            (state.status == TrainStatus.ARRIVED && motion.movingStartsBetween(state.since, now).isNotEmpty()) ||
+            (state.status != TrainStatus.DEPARTED && motion.stoppedThenMovedSince(seenHere - rules.stopBeforeSeen))
 
         val (thisStation, nextStation) = if (departed) {
             next to next?.let { map.next(it.id, heading, state.terminalStationId) }

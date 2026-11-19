@@ -28,6 +28,12 @@ class MotionLog {
         movingStartsBetween(from, to).isNotEmpty() ||
             (kindAt(from) == MotionKind.MOVING && events.none { it.kind == MotionKind.STOPPED && it.at in from..to })
 
+    /** [from] 이후에 멈췄다가 다시 움직이기 시작했는지(역에 섰다가 떠남). */
+    fun stoppedThenMovedSince(from: Instant): Boolean {
+        val stop = events.firstOrNull { it.kind == MotionKind.STOPPED && it.at >= from } ?: return false
+        return events.any { it.kind == MotionKind.MOVING && it.at > stop.at }
+    }
+
     /** [at] 시점의 마지막 상태. 기록이 없으면 null. */
     fun kindAt(at: Instant): MotionKind? = events.lastOrNull { it.at <= at }?.kind
 

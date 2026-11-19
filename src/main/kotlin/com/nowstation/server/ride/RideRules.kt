@@ -14,6 +14,11 @@ data class RideRules(
     val departureLookAhead: Duration = Duration.ofSeconds(15),
     /** 폰 움직임이 서버에 늦게 도착할 수 있어, 판단을 이만큼 미룬다. */
     val motionUploadGrace: Duration = Duration.ofSeconds(30),
+    /**
+     * 폰이 이 역에서 멈춘 시각이 공공 데이터가 열차를 이 역에서 처음 본 시각보다 이만큼 앞서도 이 역 정차로 본다
+     * (2026-11-16 녹화: 6073 모란 — 폰 정차 09:47:45, 데이터 진입 09:47:55·도착 09:48:36, 폰 출발 09:48:20).
+     */
+    val stopBeforeSeen: Duration = Duration.ofSeconds(90),
     /** 탄 열차 정보가 이보다 오래 갱신되지 않으면 "위치 확인 중". */
     val staleAfter: Duration = Duration.ofSeconds(120),
 )

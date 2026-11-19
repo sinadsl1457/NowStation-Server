@@ -294,4 +294,19 @@ class RideSessionTest {
         h.trains(100, SUIN_BUNDANG, Triple("T", "모란", ENTERING), updn = "1")
         assertIs<RidePhase.Arrived>(h.session.phase)
     }
+
+    @Test
+    fun `공공 데이터가 도착을 늦게 보여 줘도 폰이 그 역에서 섰다가 떠나면 다음 역으로 넘긴다(센서가 먼저)`() {
+        // 2026-11-16 녹화 6073 모란: 폰 정차 09:47:45 → 데이터 모란 진입 09:47:55 → 폰 출발 09:48:20 → 데이터 도착 09:48:36
+        val h = Harness("태평", "야탑")
+        h.trains(0, SUIN_BUNDANG, Triple("6073", "태평", ARRIVED), updn = "1")
+        h.session.choose(TrainKey(SUIN_BUNDANG, "6073"), maps[SUIN_BUNDANG].stationId("태평")!!, at(0))
+        h.moving(10)
+        h.stopped(110)
+        h.trains(120, SUIN_BUNDANG, Triple("6073", "모란", ENTERING), updn = "1")
+        assertEquals("모란", h.view(120).thisStation)
+        h.moving(145)
+        assertEquals("야탑", h.view(150).thisStation, "데이터는 아직 모란 진입이지만 폰이 모란을 떠났다")
+        assertEquals(true, h.view(150).prepareToAlight)
+    }
 }
