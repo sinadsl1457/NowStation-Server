@@ -15,21 +15,17 @@ sealed interface RidePhase {
     /** 역에서 열차를 기다리는 중(처음 시작, 열차를 놓침, 환승하려고 내림). 역은 이름으로 본다(선릉처럼 노선마다 ID가 다름). */
     data class Waiting(val stationName: String, val since: Instant) : RidePhase
 
-    /**
-     * [confirmed] false: 미리 골라 둔 열차(앱이 다음에 들어올 열차를 고르거나 사용자가 고름). 타는 역을 떠날 때 폰도 같이 움직여야 탄 것으로 확정.
-     * 그때 폰이 가만히 있었으면 놓친 것 → 다시 기다리며 다음 열차를 골라 둔다.
-     */
-    data class Riding(val train: TrainKey, val boardedStationId: String, val since: Instant, val confirmed: Boolean = true) : RidePhase
+    /** 따라가는 열차. 사용자가 고른(또는 골라 둔) 열차를 그대로 따라간다: 탄 열차가 중간에 바뀔 일은 없다(사용자 결정, 2026-11-19). */
+    data class Riding(val train: TrainKey, val boardedStationId: String, val since: Instant) : RidePhase
 }
 
-/** 앱에 한 번 알릴 일. MISSED: 골라 둔 열차를 놓침(다음 열차로 바꿈), SWITCHED: 폰이 다른 열차와 같이 출발해 그 열차로 바꿈. */
-enum class RideNotice { MISSED, SWITCHED }
+/** 앱에 알릴 일. TRANSFER: 환승역에 도착(다음 구간 열차를 고르게). */
+enum class RideNotice { TRANSFER }
 
 /** 화면에 더 보여 줄 것: 경로 구간, 따라가는 열차, 이번 구간 끝(환승역·내릴 역)까지 남은 정거장. */
 data class RideDetail(
     val route: Route?,
     val train: TrainKey?,
-    val confirmed: Boolean,
     val target: String?,
     val remainingStops: Int?,
     val notice: RideNotice?,
@@ -71,14 +67,9 @@ class RideSession(
     /** 기다리는 역을 떠난 열차들(아직 탈지 말지 판단 전). */
     private val candidates = mutableListOf<TrainEvent.Departed>()
 
-    /** 탄 열차가 떠났는데 폰이 안 움직였던 역(내림 판단 대기). */
-    private var pendingAlight: TrainEvent.Departed? = null
 
     /** 지도 앱 "지하철만" 첫 결과처럼 정한 경로. 방향과 환승역이 여기서 나온다. */
     val route: Route? = destinationStationName?.let { RoutePlanner.plan(stationMaps, originStationName, it) }
-
-    /** 골라 둔(미확정) 열차가 타는 역을 떠난 사건. */
-    private var pendingBoarding: TrainEvent.Departed? = null
 
     private var notice: Pair<RideNotice, Instant>? = null
 
@@ -100,31 +91,34 @@ class RideSession(
         for (e in events.filterIsInstance<TrainEvent.Departed>()) {
             when (val p = phase) {
                 is RidePhase.Waiting -> if (nameOf(e.key.line, e.stationId) == p.stationName && headsToDestination(e)) candidates += e
-                is RidePhase.Riding -> when {
-                    p.confirmed && e.key == p.train -> pendingAlight = e
-                    !p.confirmed && nameOf(e.key.line, e.stationId) == nameOf(e.key.line, p.boardedStationId) && headsToDestination(e) -> {
-                        candidates += e
-                        if (e.key == p.train) pendingBoarding = e
-                    }
-                }
+                is RidePhase.Riding -> Unit
+            }
+        }
+        // 따라가는 열차가 이번 구간 끝(환승역)에 오면 내려서 다음 구간 열차를 고르게 한다. 내릴 역이면 그대로 둔다(내릴 준비 화면)
+        val p = phase
+        if (p is RidePhase.Riding) {
+            val leg = route?.legOn(p.train.line)
+            val reached = events.firstOrNull { it.key == p.train && nameOf(it.key.line, it.stationId) == leg?.to }
+            if (leg != null && reached != null && leg.to != destinationStationName) {
+                phase = RidePhase.Waiting(leg.to, reached.observedAt)
+                notice = RideNotice.TRANSFER to now
+                candidates.clear()
             }
         }
         tick(now)
     }
 
     /** 사용자가 고른 열차에 바로 탄다(폰 움직임으로 맞히지 않는다). 이미 타고 있어도 바꿔 탄다(잘못 고른 걸 다시 고름). */
-    fun choose(train: TrainKey, stationId: String, now: Instant, confirmed: Boolean = true) {
-        phase = RidePhase.Riding(train, stationId, now, confirmed)
+    fun choose(train: TrainKey, stationId: String, now: Instant) {
+        phase = RidePhase.Riding(train, stationId, now)
         candidates.clear()
-        pendingAlight = null
-        pendingBoarding = null
     }
 
     /** 미뤄 둔 판단을 확정한다. 주기적으로 불러야 한다(폰 움직임이 끝내 안 오는 경우). */
     fun tick(now: Instant) {
         when (val p = phase) {
             is RidePhase.Waiting -> resolveBoarding(now)
-            is RidePhase.Riding -> if (p.confirmed) resolveAlighting(p, now) else resolveChosen(p, now)
+            is RidePhase.Riding -> Unit
         }
     }
 
@@ -143,32 +137,9 @@ class RideSession(
             }
         } else null
         val shown = notice?.takeIf { Duration.between(it.second, now) < NOTICE_FOR }?.first
-        return RideDetail(route, train, (p as? RidePhase.Riding)?.confirmed ?: false, target, remaining, shown)
+        return RideDetail(route, train, target, remaining, shown)
     }
 
-    /**
-     * 골라 둔 열차 확인. 타는 역을 떠난 열차 중 폰도 같이 출발한 열차가 있으면 그 열차로 확정(골라 둔 것과 다르면 바꿈).
-     * 골라 둔 열차가 떠날 때 폰이 끝내 가만히 있었으면 놓친 것 → 그 역에서 다시 기다린다(서비스가 다음 열차를 골라 둠).
-     */
-    private fun resolveChosen(p: RidePhase.Riding, now: Instant) {
-        val matched = candidates.filter { d ->
-            val (from, to) = departureWindow(d)
-            motion.movingStartsBetween(maxOf(from, p.since), to).isNotEmpty()
-        }.maxByOrNull { departureWindow(it).first }
-        if (matched != null) {
-            if (matched.key != p.train) notice = RideNotice.SWITCHED to now
-            phase = RidePhase.Riding(matched.key, matched.stationId, matched.observedAt, confirmed = true)
-            candidates.clear()
-            pendingBoarding = null
-            return
-        }
-        val d = pendingBoarding ?: return
-        if (now <= departureWindow(d).second + rules.motionUploadGrace) return
-        notice = RideNotice.MISSED to now
-        phase = RidePhase.Waiting(nameOf(p.train.line, p.boardedStationId) ?: originStationName, now)
-        candidates.clear()
-        pendingBoarding = null
-    }
 
     fun view(tracker: TrainTracker, now: Instant): RideView = when (val p = phase) {
         is RidePhase.Waiting -> RideView(RideStatus.WAITING, null, p.stationName, null, prepareToAlight = false)
@@ -207,17 +178,6 @@ class RideSession(
         return from to (d.observedAt + rules.departureLookAhead)
     }
 
-    private fun resolveAlighting(riding: RidePhase.Riding, now: Instant) {
-        val d = pendingAlight ?: return
-        val (from, to) = departureWindow(d)
-        if (motion.movedWithDeparture(from, to)) {
-            pendingAlight = null
-            return
-        }
-        if (now <= to + rules.motionUploadGrace) return
-        pendingAlight = null
-        phase = RidePhase.Waiting(nameOf(riding.train.line, d.stationId) ?: d.stationId, d.observedAt)
-    }
 
     private fun ridingView(riding: RidePhase.Riding, tracker: TrainTracker, now: Instant): RideView {
         val line = riding.train.line
@@ -267,7 +227,7 @@ class RideSession(
     private fun nameOf(line: SubwayLine, stationId: String): String? = stationMaps[line].station(stationId)?.name
 
     private companion object {
-        /** 놓침·바꿈 알림을 화면에 띄워 두는 시간. */
-        val NOTICE_FOR: Duration = Duration.ofSeconds(90)
+        /** 환승 알림을 화면에 띄워 두는 시간(내려서 갈아타는 승강장까지 걷는 동안). */
+        val NOTICE_FOR: Duration = Duration.ofMinutes(3)
     }
 }

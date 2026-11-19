@@ -221,17 +221,24 @@ class RideApiTest {
     fun `한티에서 시작해 선릉 환승 후 강남 직전 알림까지 API로`() {
         clock.now = kst("09:45:00")
         val id = startRide("한티", "강남")
-        // 시작하자마자 다음에 들어올 열차를 골라 둔다(탄 것은 아직 확인 전)
-        mvc.get("/api/rides/$id").andExpect { jsonPath("$.confirmed") { value(false) }; jsonPath("$.trainNo") { exists() }; jsonPath("$.target") { value("선릉") } }
+        // 시작하자마자 다음에 들어올 열차를 골라 둔다
+        mvc.get("/api/rides/$id").andExpect { jsonPath("$.trainNo") { exists() }; jsonPath("$.target") { value("선릉") } }
 
         motion(id, "STOPPED", "09:45:00")
         pollUntil("09:47:10")
         motion(id, "MOVING", "09:47:15")
         // 지하라 정차 기록이 늦게 올라감(폰 시계가 서버와 달라도 '보낸 시각과의 차이'로 맞춤)
         motion(id, "STOPPED", at = "09:47:45", sentAt = "09:48:20")
+        pollUntil("09:49:30")
+        // 골라 둔 수인분당 열차(6062)가 선릉에 옴 → 환승 알림, 2호선 강남 방면 다음 열차를 골라 둠
+        mvc.get("/api/rides/$id").andExpect { jsonPath("$.notice") { value("TRANSFER") }; jsonPath("$.target") { value("강남") }; jsonPath("$.line") { value("2호선") } }
         pollUntil("09:51:40")
         motion(id, "MOVING", "09:51:45")
         pollUntil("09:52:35")
+        mvc.post("/api/rides/$id/train") { // 사용자가 노선도에서 탈 2호선 열차(3154)를 누른다
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"line":"2호선","trainNo":"3154"}"""
+        }.andExpect { status { isOk() } }
         motion(id, "STOPPED", "09:52:40")
         pollUntil("09:54:00")
         motion(id, "MOVING", "09:54:05")
@@ -267,6 +274,7 @@ class RideApiTest {
         pollUntil("09:51:40")
         motion(id, "MOVING", "09:51:45")
         pollUntil("09:52:35")
+        rides.choose(id, SubwayLine.LINE_2, "3154") // 선릉 환승: 사용자가 노선도에서 탈 열차(3154)를 누른다
         motion(id, "STOPPED", "09:52:40")
         pollUntil("09:54:00")
         motion(id, "MOVING", "09:54:05")
@@ -299,11 +307,10 @@ class RideApiTest {
         pollUntil("09:51:40") // 선릉에서 내려 2호선을 기다리는 중
 
         try {
-            // 선릉에서 2호선 다음 열차를 골라 둔 상태(확인 전)까지 이어 간다
+            // 선릉에서 환승: 2호선 다음 열차를 골라 둔 상태까지 이어 간다
             val detail = newServer().detail(id)
 
             assertEquals("2호선", detail.train?.line?.apiName)
-            assertEquals(false, detail.confirmed)
             assertEquals("강남", detail.target)
         } finally {
             rides.end(id)
