@@ -12,8 +12,13 @@ import java.time.Duration
 data class RideRules(
     val departureLookBack: Duration = Duration.ofSeconds(120),
     val departureLookAhead: Duration = Duration.ofSeconds(15),
-    /** 폰 움직임이 서버에 늦게 도착할 수 있어, 판단을 이만큼 미룬다. */
+    /** 폰 움직임이 서버에 늦게 도착할 수 있어, 내림 판단을 이만큼 미룬다(타고 있는 동안은 앱이 바로 보낸다). */
     val motionUploadGrace: Duration = Duration.ofSeconds(30),
+    /**
+     * 탈 열차 판단은 더 오래 미룬다. 앱은 "출발"을 운영체제의 "탈것 탑승 중" 확인(최대 2분) 뒤에 보내므로
+     * (책상 위 기울기·집 안 걷기를 출발로 착각한 실기기 오작동을 거르려고) 2분 + 보내는 시간.
+     */
+    val boardingMotionGrace: Duration = Duration.ofSeconds(150),
     /** 탄 열차 정보가 이보다 오래 갱신되지 않으면 "위치 확인 중". */
     val staleAfter: Duration = Duration.ofSeconds(120),
 )

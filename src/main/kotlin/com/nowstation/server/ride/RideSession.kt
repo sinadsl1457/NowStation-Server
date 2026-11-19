@@ -102,7 +102,7 @@ class RideSession(
             return
         }
         // 판단을 미루는 시간까지 지났는데도 폰이 안 움직였으면 놓친 열차
-        candidates.removeIf { now > departureWindow(it).second + rules.motionUploadGrace }
+        candidates.removeIf { now > departureWindow(it).second + rules.boardingMotionGrace }
     }
 
     /**
