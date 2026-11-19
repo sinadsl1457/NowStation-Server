@@ -1,6 +1,7 @@
 package com.nowstation.server.ride
 
 import com.nowstation.server.subway.ApiCallBudget
+import com.nowstation.server.subway.ExpressTrains
 import com.nowstation.server.subway.PollPacing
 import com.nowstation.server.subway.PositionsResult
 import com.nowstation.server.subway.StationMaps
@@ -39,6 +40,7 @@ class RideService(
     private val clock: Clock,
     @Value("\${ride.poll-interval:PT15S}") private val pollInterval: Duration = Duration.ofSeconds(15),
     @Value("\${ride.idle-timeout:PT10M}") private val idleTimeout: Duration = Duration.ofMinutes(10),
+    private val expressTrains: ExpressTrains = ExpressTrains { _, _ -> emptySet() },
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val sessions = ConcurrentHashMap<String, RideSession>()
@@ -107,7 +109,8 @@ class RideService(
         lastContact[id] = now
         val leg = synchronized(session) { session.currentLeg() } ?: return null
         refreshIfStale(leg.line, now)
-        return synchronized(tracker) { TrainChoices.strip(stationMaps, tracker.states(leg.line), leg, now, STALE_AFTER) }
+        val express = expressTrains.at(leg.line, leg.from)
+        return synchronized(tracker) { TrainChoices.strip(stationMaps, tracker.states(leg.line), leg, now, STALE_AFTER, express) }
     }
 
     /** 사용자가 고른 열차를 그대로 따라간다. */
@@ -140,7 +143,8 @@ class RideService(
     private fun suggestTrains(now: Instant) {
         for (s in sessions.values) {
             val leg = synchronized(s) { s.wantsSuggestion() } ?: continue
-            val strip = synchronized(tracker) { TrainChoices.strip(stationMaps, tracker.states(leg.line), leg, now, STALE_AFTER) }
+            val express = expressTrains.at(leg.line, leg.from)
+            val strip = synchronized(tracker) { TrainChoices.strip(stationMaps, tracker.states(leg.line), leg, now, STALE_AFTER, express) }
             val pick = TrainChoices.suggest(strip) ?: continue
             val boardId = stationMaps[leg.line].stationId(leg.from)!!
             synchronized(s) { s.choose(pick.key, boardId, now) }

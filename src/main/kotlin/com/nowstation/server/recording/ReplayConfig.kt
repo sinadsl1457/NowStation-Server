@@ -17,6 +17,10 @@ class ReplayConfig {
     @Bean
     fun clock(replay: ReplayProperties): Clock = replay.clock()
 
+    /** 녹화에는 도착정보가 없다: 급행을 따로 거르지 않는다. */
+    @Bean
+    fun expressTrains(): com.nowstation.server.subway.ExpressTrains = com.nowstation.server.subway.ExpressTrains { _, _ -> emptySet() }
+
     @Bean
     fun replayTrainDataSource(replay: ReplayProperties, parser: RealtimePositionParser, clock: Clock): ReplayTrainDataSource {
         val source = ReplayTrainDataSource(RecordingReader().read(replay.directory), parser, clock)

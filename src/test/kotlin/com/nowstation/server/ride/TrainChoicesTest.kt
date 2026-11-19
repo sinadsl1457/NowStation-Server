@@ -72,4 +72,21 @@ class TrainChoicesTest {
         )
         assertEquals(listOf("OK"), s.trains.map { it.key.trainNo })
     }
+
+    @Test
+    fun `위치정보가 일반이라 해도 도착정보가 급행이라 한 열차는 뺀다`() {
+        val s = TrainChoices.strip(maps, listOf(train("6308", "이매"), train("6058", "서현")), leg, now, Duration.ofMinutes(2), expressTrainNos = setOf("6308"))
+        assertEquals(listOf("6058"), s.trains.map { it.key.trainNo })
+    }
+
+    @Test
+    fun `도착정보 원문에서 노선별 급행 번호를 고른다`() {
+        val body = """{"realtimeArrivalList":[{"subwayId":"1075","btrainNo":"6308","btrainSttus":"급행"},{"subwayId":"1075","btrainNo":"6058","btrainSttus":"일반"}]}"""
+        val parsed = com.nowstation.server.subway.LiveExpressTrains(
+            com.nowstation.server.subway.SeoulSubwayClient(org.springframework.web.client.RestClient.create(), "k",
+                com.nowstation.server.subway.ApiCallBudget(java.time.Clock.systemUTC()), java.time.Clock.systemUTC()),
+            java.time.Clock.systemUTC(),
+        ).parse(body)
+        assertEquals(mapOf("1075" to setOf("6308")), parsed)
+    }
 }

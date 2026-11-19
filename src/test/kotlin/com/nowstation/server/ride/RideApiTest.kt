@@ -60,6 +60,10 @@ class RideApiTest {
         @Bean @Primary
         fun movableClock() = MovableClock(kst("09:45:00"))
 
+        /** 녹화에는 도착정보가 없고, 테스트가 실제 서울시 API를 부르지 않게. */
+        @Bean @Primary
+        fun noExpress() = com.nowstation.server.subway.ExpressTrains { _, _ -> emptySet() }
+
         /** 지금 시각에 받은 것처럼 그 노선의 가장 최근 녹화 응답을 돌려준다. */
         @Bean @Primary
         fun replayDataSource(clock: MovableClock): TrainDataSource {

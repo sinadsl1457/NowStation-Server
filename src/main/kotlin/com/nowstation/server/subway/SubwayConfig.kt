@@ -30,6 +30,10 @@ class SubwayConfig {
         LiveTrainDataSource(client, parser)
 
     @Bean
+    @ConditionalOnProperty("replay.enabled", havingValue = "false", matchIfMissing = true)
+    fun expressTrains(client: SeoulSubwayClient, clock: Clock): ExpressTrains = LiveExpressTrains(client, clock)
+
+    @Bean
     fun seoulSubwayClient(
         builder: RestClient.Builder,
         @Value("\${seoul.subway.base-url}") baseUrl: String,

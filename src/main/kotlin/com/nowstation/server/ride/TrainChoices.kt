@@ -51,7 +51,7 @@ object TrainChoices {
         SubwayLine.SINBUNDANG -> 3.2
     }
 
-    fun strip(maps: StationMaps, states: List<TrainState>, leg: Leg, now: Instant, staleAfter: Duration): TrainStrip {
+    fun strip(maps: StationMaps, states: List<TrainState>, leg: Leg, now: Instant, staleAfter: Duration, expressTrainNos: Set<String> = emptySet()): TrainStrip {
         val map = maps[leg.line]
         val boardId = map.stationId(leg.from)!!
         val opposite = if (leg.heading == Heading.ASCENDING) Heading.DESCENDING else Heading.ASCENDING
@@ -64,7 +64,7 @@ object TrainChoices {
             val here = map.station(s.stationId) ?: return@mapNotNull null
             val index = stations.indexOf(here.name)
             if (index < 0 || here.name == leg.to) return@mapNotNull null
-            if (s.express && leg.from !in expressStops[leg.line].orEmpty()) return@mapNotNull null
+            if ((s.express || s.key.trainNo in expressTrainNos) && leg.from !in expressStops[leg.line].orEmpty()) return@mapNotNull null
             val terminal = map.station(s.terminalStationId)
             // 종착역이 구간 끝보다 앞이면 그 열차로는 못 간다
             if (terminal != null && map.stopsTo(here.id, leg.heading, leg.to, s.terminalStationId)
