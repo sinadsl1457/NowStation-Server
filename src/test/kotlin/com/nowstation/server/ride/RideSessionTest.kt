@@ -69,7 +69,7 @@ class RideSessionTest {
         h.trains(370, SUIN_BUNDANG, Triple("Y", "모란", ENTERING), updn = "1")
 
         assertEquals("Y", h.riding().trainNo)
-        assertEquals(RideView(RideStatus.MOVING, SUIN_BUNDANG, "모란", "야탑", false), h.view(370))
+        assertEquals(RideView(RideStatus.MOVING, SUIN_BUNDANG, "모란", "야탑", true), h.view(370), "다음 역이 야탑 → 한 정거장 전부터 내릴 준비")
     }
 
     @Test
@@ -122,7 +122,7 @@ class RideSessionTest {
         h.trains(1260, LINE_2, Triple("2222", "선릉", DEPARTED))
 
         assertEquals(TrainKey(LINE_2, "2222"), h.riding())
-        assertEquals(RideView(RideStatus.MOVING, LINE_2, "역삼", "강남", false), h.view(1260))
+        assertEquals(RideView(RideStatus.MOVING, LINE_2, "역삼", "강남", true), h.view(1260), "다음 역이 강남 → 한 정거장 전부터 내릴 준비")
 
         h.trains(1320, LINE_2, Triple("2222", "역삼", ARRIVED))
         h.stopped(1300)
@@ -258,12 +258,30 @@ class RideSessionTest {
     }
 
     @Test
-    fun `내릴 역에 오면 환승 대기로 바꾸지 않고 내릴 준비`() {
+    fun `내릴 역에 오면 환승 대기로 바꾸지 않고 도착`() {
         val h = Harness("한티", "선릉")
         h.trains(0, SUIN_BUNDANG, Triple("T", "한티", ARRIVED))
         h.session.choose(TrainKey(SUIN_BUNDANG, "T"), maps[SUIN_BUNDANG].stationId("한티")!!, at(0))
+        assertEquals(true, h.view(0).prepareToAlight, "다음 역이 선릉")
         h.trains(100, SUIN_BUNDANG, Triple("T", "선릉", ARRIVED))
-        assertEquals("T", h.riding().trainNo)
-        assertEquals(true, h.view(100).prepareToAlight)
+        assertIs<RidePhase.Arrived>(h.session.phase)
+        assertEquals(RideStatus.ARRIVED, h.view(100).status)
+    }
+
+    @Test
+    fun `내릴 준비는 한 정거장 전부터(출발 상태가 없는 수인분당선도), 내릴 역에 오면 더 따라가지 않는다`() {
+        val h = Harness("선릉", "태평")
+        h.trains(0, SUIN_BUNDANG, Triple("9038", "복정", ARRIVED), updn = "1")
+        h.session.choose(TrainKey(SUIN_BUNDANG, "9038"), maps[SUIN_BUNDANG].stationId("선릉")!!, at(0))
+        assertEquals(false, h.view(0).prepareToAlight)
+
+        h.trains(150, SUIN_BUNDANG, Triple("9038", "가천대", ARRIVED), updn = "1")
+        assertEquals(true, h.view(150).prepareToAlight, "가천대에 서 있을 때 다음 역 태평 → 내릴 준비")
+
+        h.trains(300, SUIN_BUNDANG, Triple("9038", "태평", ARRIVED), updn = "1")
+        assertEquals(RidePhase.Arrived("태평", SUIN_BUNDANG, at(300)), h.session.phase)
+        h.trains(450, SUIN_BUNDANG, Triple("9038", "모란", ARRIVED), updn = "1")
+        assertEquals(RideStatus.ARRIVED, h.view(450).status)
+        assertEquals("태평", h.view(450).thisStation, "열차가 모란으로 가도 태평 도착 그대로")
     }
 }

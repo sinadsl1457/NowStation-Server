@@ -17,6 +17,9 @@ sealed interface RidePhase {
 
     /** 따라가는 열차. 사용자가 고른(또는 골라 둔) 열차를 그대로 따라간다: 탄 열차가 중간에 바뀔 일은 없다(사용자 결정, 2026-11-19). */
     data class Riding(val train: TrainKey, val boardedStationId: String, val since: Instant) : RidePhase
+
+    /** 내릴 역에 도착. 더 따라가지 않는다(따라가던 열차가 태평을 지나 모란까지 가도 계속 따라가던 문제, 퇴근 시간 시나리오). */
+    data class Arrived(val stationName: String, val line: SubwayLine, val since: Instant) : RidePhase
 }
 
 /** 앱에 알릴 일. TRANSFER: 환승역에 도착(다음 구간 열차를 고르게). */
@@ -31,7 +34,7 @@ data class RideDetail(
     val notice: RideNotice?,
 )
 
-enum class RideStatus { WAITING, AT_STATION, MOVING, HOLDING_BETWEEN, STALE }
+enum class RideStatus { WAITING, AT_STATION, MOVING, HOLDING_BETWEEN, STALE, ARRIVED }
 
 /** 앱에 보여 줄 것. 열차 안 방송처럼, 출발한 뒤에는 "이번 역"이 다가오는 역이다. */
 data class RideView(
@@ -80,6 +83,7 @@ class RideSession(
     fun currentLeg(): Leg? = when (val p = phase) {
         is RidePhase.Waiting -> route?.legs?.firstOrNull { it.from == p.stationName } ?: route?.legs?.lastOrNull { it.to == p.stationName }
         is RidePhase.Riding -> route?.legOn(p.train.line)
+        is RidePhase.Arrived -> route?.legs?.lastOrNull()
     }
 
     fun onMotion(event: MotionEvent, now: Instant) {
@@ -91,7 +95,7 @@ class RideSession(
         for (e in events.filterIsInstance<TrainEvent.Departed>()) {
             when (val p = phase) {
                 is RidePhase.Waiting -> if (nameOf(e.key.line, e.stationId) == p.stationName && headsToDestination(e)) candidates += e
-                is RidePhase.Riding -> Unit
+                is RidePhase.Riding, is RidePhase.Arrived -> Unit
             }
         }
         // 따라가는 열차가 이번 구간 끝(환승역)에 오면 내려서 다음 구간 열차를 고르게 한다. 내릴 역이면 그대로 둔다(내릴 준비 화면)
@@ -103,6 +107,8 @@ class RideSession(
                 phase = RidePhase.Waiting(leg.to, reached.observedAt)
                 notice = RideNotice.TRANSFER to now
                 candidates.clear()
+            } else if (leg != null && reached != null) {
+                phase = RidePhase.Arrived(leg.to, p.train.line, reached.observedAt)
             }
         }
         tick(now)
@@ -118,7 +124,7 @@ class RideSession(
     fun tick(now: Instant) {
         when (val p = phase) {
             is RidePhase.Waiting -> resolveBoarding(now)
-            is RidePhase.Riding -> Unit
+            is RidePhase.Riding, is RidePhase.Arrived -> Unit
         }
     }
 
@@ -144,6 +150,7 @@ class RideSession(
     fun view(tracker: TrainTracker, now: Instant): RideView = when (val p = phase) {
         is RidePhase.Waiting -> RideView(RideStatus.WAITING, null, p.stationName, null, prepareToAlight = false)
         is RidePhase.Riding -> ridingView(p, tracker, now)
+        is RidePhase.Arrived -> RideView(RideStatus.ARRIVED, p.line, p.stationName, null, prepareToAlight = true)
     }
 
     /**
@@ -207,7 +214,8 @@ class RideSession(
             line = line,
             thisStation = thisStation?.name,
             nextStation = nextStation?.name,
-            prepareToAlight = (route?.legOn(line)?.to ?: destinationStationName)?.let { thisStation?.name == it } == true,
+            // 한 정거장 전부터: 출발 상태를 주지 않는 노선(수인분당)은 내릴 역에 들어서야 떠난 걸 알아 알림이 늦었다
+            prepareToAlight = (route?.legOn(line)?.to ?: destinationStationName)?.let { thisStation?.name == it || nextStation?.name == it } == true,
         )
     }
 

@@ -64,7 +64,9 @@ SCENARIOS = {
         "checks": [
             ("18:03:00", "강남: 2호선 선릉 방면으로 들어오는 열차 여러 대, 다음 열차를 골라 따라감", ["따라가고 있어요", "선릉까지"]),
             ("18:09:00", "선릉 도착 → 환승 안내, 수인분당 태평 방면 열차를 골라 둠", ["갈아타세요", "수인분당선", "태평 방면"]),
-            ("18:36:00", "태평 직전 하차 알림", ["태평", "내릴 준비하세요"]),
+            # 합성 데이터에서 9038: 가천대 18:29:30 도착 → 태평 18:32:00 도착 → 모란으로 계속
+            ("18:30:30", "가천대에 서 있을 때 다음 역 태평 → 내릴 준비(한 정거장 전)", ["태평", "내릴 준비하세요"]),
+            ("18:34:30", "열차가 태평을 지나 모란으로 가도 태평 도착에서 멈춤", ["태평", "도착했어요"]),
         ],
     },
     "missed": {
@@ -253,7 +255,7 @@ def http_json(path: str):
         return json.load(r)
 
 
-def start_server(start: datetime, log_path: Path, replay_dir: str | None = None) -> subprocess.Popen:
+def start_server(start: datetime, log_path: Path, replay_dir: "str | None" = None) -> subprocess.Popen:
     try:
         http_json("/actuator/health")
         raise SystemExit("8080에 이미 서버가 떠 있다. 끄고 다시 실행(재생 모드 서버를 이 스크립트가 띄운다)")

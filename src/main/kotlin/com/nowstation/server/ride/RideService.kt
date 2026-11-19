@@ -179,6 +179,7 @@ class RideService(
         when (val p = s.phase) {
             is RidePhase.Waiting -> s.currentLeg()?.let { listOf(it.line) } ?: stationMaps.linesServing(p.stationName)
             is RidePhase.Riding -> listOf(p.train.line)
+            is RidePhase.Arrived -> emptyList()
         }
     }.toSet()
 
@@ -253,6 +254,12 @@ class RideService(
                 record.lastTrainNo = phase.train.trainNo
                 record.boardedStationId = phase.boardedStationId
             }
+            is RidePhase.Arrived -> {
+                record.phase = "ARRIVED"
+                record.phaseSince = phase.since
+                record.lastLine = phase.line.name
+                record.lastStation = phase.stationName
+            }
             is RidePhase.Waiting -> {
                 record.phase = "WAITING"
                 record.phaseSince = phase.since
@@ -278,7 +285,9 @@ class RideService(
         val since = r.phaseSince ?: r.startedAt
         val line = r.lastLine?.let { runCatching { SubwayLine.valueOf(it) }.getOrNull() }
         // CHOSEN은 예전 기록(골라 두기만 한 열차). 지금은 고르면 그대로 따라가므로 같이 이어 간다
-        val phase = if ((r.phase == "RIDING" || r.phase == "CHOSEN") && line != null && r.lastTrainNo != null) {
+        val phase = if (r.phase == "ARRIVED" && line != null) {
+            RidePhase.Arrived(r.lastStation ?: r.destinationStation ?: r.originStation, line, since)
+        } else if ((r.phase == "RIDING" || r.phase == "CHOSEN") && line != null && r.lastTrainNo != null) {
             RidePhase.Riding(TrainKey(line, r.lastTrainNo!!), r.boardedStationId ?: "", since)
         } else {
             RidePhase.Waiting(r.lastStation ?: r.originStation, since)
