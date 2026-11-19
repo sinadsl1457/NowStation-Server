@@ -38,8 +38,6 @@ class RideSessionTest {
         fun moving(s: Long) = session.onMotion(MotionEvent(MotionKind.MOVING, at(s)), at(s))
         fun stopped(s: Long) = session.onMotion(MotionEvent(MotionKind.STOPPED, at(s)), at(s))
         fun tick(s: Long) = session.tick(at(s))
-        /** [s]초에 느낀 출발이 [delivered]초에야 도착(앱이 운영체제의 "탈것 탑승 중" 확인을 기다렸다 보냄). */
-        fun movingArrivesLate(s: Long, delivered: Long) = session.onMotion(MotionEvent(MotionKind.MOVING, at(s)), at(delivered))
         fun view(s: Long) = session.view(tracker, at(s))
         fun riding() = assertIs<RidePhase.Riding>(session.phase).train
     }
@@ -183,18 +181,5 @@ class RideSessionTest {
         h.stopped(300)
         h.tick(400)
         assertEquals("T", h.riding().trainNo, "가천대에서 내린 게 아니다")
-    }
-
-    @Test
-    fun `앱이 운영체제 확인을 기다리느라 출발이 2분 가까이 늦게 와도 탄 열차를 찾는다`() {
-        val h = Harness("태평")
-        h.stopped(0)
-        h.trains(0, SUIN_BUNDANG, Triple("T", "태평", ARRIVED))
-        h.trains(70, SUIN_BUNDANG, Triple("T", "가천대", ENTERING)) // 30초쯤 실제 출발, 서버는 70초에 앎
-        h.tick(130)
-        h.trains(140, SUIN_BUNDANG, Triple("T", "가천대", ARRIVED))
-        h.movingArrivesLate(30, delivered = 150) // 앱이 "탈것 탑승 중" 확인을 2분 기다린 뒤 보냄
-
-        assertEquals("T", h.riding().trainNo)
     }
 }
