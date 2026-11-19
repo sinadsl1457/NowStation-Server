@@ -191,20 +191,24 @@ class RideApiTest {
     }
 
     @Test
-    fun `탑승을 시작하면 고를 열차를 바로 받아 오고, 고른 열차를 바로 따라간다`() {
+    fun `탑승을 시작하면 경로 방향 노선도를 받아 다음 열차를 골라 두고, 다른 열차를 고를 수 있다`() {
         clock.now = kst("09:46:00")
-        val id = startRide("한티", "선릉")
+        val id = startRide("한티", "강남")
+        val started = json.readTree(mvc.get("/api/rides/$id").andReturn().response.contentAsString)
+        assertEquals<List<String>>(listOf("수인분당선 한티→선릉", "2호선 선릉→강남"), started.path("legs").toList().map { "${it.path("line").asString()} ${it.path("from").asString()}→${it.path("to").asString()}" })
+
         val body = mvc.get("/api/rides/$id/trains").andExpect { status { isOk() } }.andReturn().response.contentAsString
-        val trains = json.readTree(body)
+        val strip = json.readTree(body)
+        assertEquals("선릉", strip.path("leg").path("to").asString())
+        assertEquals("한티", strip.path("stations")[strip.path("boardIndex").asInt()].asString())
+        val trains = strip.path("trains")
         assert(trains.size() > 0) { "녹화 시각에 한티 → 선릉 쪽 열차가 있어야 한다: $body" }
-        val first = trains[0]
-        assertEquals("수인분당선", first.path("line").asString())
+        val other = trains.toList().firstOrNull { !it.path("selected").asBoolean() } ?: trains[0]
 
         mvc.post("/api/rides/$id/train") {
             contentType = MediaType.APPLICATION_JSON
-            content = """{"line":"수인분당선","trainNo":"${first.path("trainNo").asString()}"}"""
-        }.andExpect { status { isOk() }; jsonPath("$.line") { value("수인분당선") } }
-        assertEquals(first.path("trainNo").asString(), records.findById(id).get().lastTrainNo)
+            content = """{"line":"수인분당선","trainNo":"${other.path("trainNo").asString()}"}"""
+        }.andExpect { status { isOk() }; jsonPath("$.trainNo") { value(other.path("trainNo").asString()) }; jsonPath("$.target") { value("선릉") } }
 
         mvc.post("/api/rides/$id/train") {
             contentType = MediaType.APPLICATION_JSON
@@ -217,7 +221,8 @@ class RideApiTest {
     fun `한티에서 시작해 선릉 환승 후 강남 직전 알림까지 API로`() {
         clock.now = kst("09:45:00")
         val id = startRide("한티", "강남")
-        mvc.get("/api/rides/$id").andExpect { jsonPath("$.status") { value("WAITING") }; jsonPath("$.thisStation") { value("한티") } }
+        // 시작하자마자 다음에 들어올 열차를 골라 둔다(탄 것은 아직 확인 전)
+        mvc.get("/api/rides/$id").andExpect { jsonPath("$.confirmed") { value(false) }; jsonPath("$.trainNo") { exists() }; jsonPath("$.target") { value("선릉") } }
 
         motion(id, "STOPPED", "09:45:00")
         pollUntil("09:47:10")
@@ -284,7 +289,7 @@ class RideApiTest {
     }
 
     @Test
-    fun `갈아타려고 기다리던 역도 이어 간다`() {
+    fun `갈아타려고 기다리던 역(골라 둔 다음 열차)도 이어 간다`() {
         clock.now = kst("09:45:00")
         val id = startRide("한티", "강남")
         motion(id, "STOPPED", "09:45:00")
@@ -294,10 +299,12 @@ class RideApiTest {
         pollUntil("09:51:40") // 선릉에서 내려 2호선을 기다리는 중
 
         try {
-            val view = newServer().view(id)
+            // 선릉에서 2호선 다음 열차를 골라 둔 상태(확인 전)까지 이어 간다
+            val detail = newServer().detail(id)
 
-            assertEquals(RideStatus.WAITING, view.status)
-            assertEquals("선릉", view.thisStation)
+            assertEquals("2호선", detail.train?.line?.apiName)
+            assertEquals(false, detail.confirmed)
+            assertEquals("강남", detail.target)
         } finally {
             rides.end(id)
         }

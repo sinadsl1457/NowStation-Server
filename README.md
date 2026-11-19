@@ -76,7 +76,8 @@ src/main/kotlin/com/nowstation/server/
 ├ tracking/    TrainTracker.kt   받아 온 데이터 → "열차 ○○이 언제 어느 역에 도착·출발"
 ├ ride/        탑승
 │  ├ RideSession.kt              판단 규칙: 탄 열차 찾기, 놓친 열차 무시, 환승, 현재역·다음역
-│  ├ TrainChoices.kt             사용자가 고를 열차 후보(출발역 근처, 내릴 역 방향)
+│  ├ RoutePlanner.kt             경로 정하기(지도 앱 "지하철만" 첫 결과처럼): 구간·방향·환승역
+│  ├ TrainChoices.kt             가로 노선도(경로 방향 역 + 열차), 골라 둘 다음 열차
 │  ├ RideRules.kt                판단 기준값 한곳
 │  ├ RideService.kt              진행 중인 탑승들, 필요한 노선만 받아 오기, 버려진 탑승 정리
 │  ├ RidePoller.kt               탑승 중일 때만 15초마다
@@ -93,17 +94,17 @@ src/main/kotlin/com/nowstation/server/
 | `GET /api/stations?query=선릉` | 역 검색 → `[{"name":"선릉","lines":["2호선","수인분당선"]}]` |
 | `GET /api/lines` | 지원 노선 → `["2호선","수인분당선","신분당선"]` |
 | `POST /api/rides` `{"originStation":"태평","destinationStation":"야탑"}` | 탑승 시작(내릴 역은 선택) |
-| `GET /api/rides/{id}/trains` | 지금 탄 열차로 고를 후보(출발역 한 정거장 전 ~ 내릴 역 직전, 내릴 역 방향, 가까운 순) → `[{"line":"수인분당선","trainNo":"6050","station":"가천대","status":"ARRIVED","terminal":"왕십리","seenSecondsAgo":12}]` |
-| `POST /api/rides/{id}/train` `{"line":"수인분당선","trainNo":"6050"}` | 사용자가 고른 열차에 바로 탐(폰 움직임으로 맞히지 않음) |
+| `GET /api/rides/{id}/trains` | 가로 노선도: 경로 첫 구간 방향의 역(타는 역 4정거장 전 ~ 환승역·내릴 역)과 그 위 열차 → `{"leg":{"line":"수인분당선","from":"태평","to":"선릉"},"stations":["서현",…,"태평",…,"선릉"],"boardIndex":4,"trains":[{"trainNo":"6206","station":"모란","status":"ARRIVED","terminal":"왕십리","selected":true,"seenSecondsAgo":12}]}` |
+| `POST /api/rides/{id}/train` `{"line":"수인분당선","trainNo":"6050"}` | 다른 열차 고르기. 타는 역 전 열차면 떠날 때 폰과 맞춰 확정, 이미 지난 열차(늦게 켬)면 바로 확정 |
 | `POST /api/rides/{id}/motion` `{"events":[{"kind":"MOVING","at":"…"}],"sentAt":"…"}` | 폰이 출발·정차한 시각(끊긴 동안 쌓인 것을 한꺼번에) |
-| `GET /api/rides/{id}` | `{"status":"MOVING","line":"수인분당선","thisStation":"야탑","nextStation":"이매","prepareToAlight":true}` |
+| `GET /api/rides/{id}` | `{"status":"MOVING","line":"수인분당선","thisStation":"수서","nextStation":"대모산입구","prepareToAlight":false,"legs":[{"line":"수인분당선","from":"태평","to":"선릉"},{"line":"2호선","from":"선릉","to":"강남"}],"trainNo":"6206","confirmed":true,"target":"선릉","remainingStops":6,"notice":null}` (notice: MISSED·SWITCHED를 잠깐) |
 | `DELETE /api/rides/{id}` | 탑승 종료 |
 
 `status`: `WAITING`(역에서 기다림) · `AT_STATION`(정차) · `MOVING`(이동) · `HOLDING_BETWEEN`(역 사이 정차) · `STALE`(2분 넘게 소식 없음)
 
 ## 테스트와 시연
 
-**서버 테스트 69개**
+**서버 테스트 80개**
 - 판단 규칙: 정상 탑승, 열차 놓침, 반대 방향 열차 거름, 5분 임시 정차, 환승, 역 사이 정차, 데이터 끊김, 늦게 온 움직임, 하차 알림
 - 실제 녹화 데이터(2026-11-16 오전) 시나리오: 태평에서 6064 놓치고 6518 탑승 / 한티 → 선릉 하차 → 2호선 3154 → 강남 직전 알림
 - 통합(Spring + MySQL을 Testcontainers로): 위 환승을 API로 끝까지, 버려진 탑승 정리
@@ -159,7 +160,7 @@ cp .env.example .env          # 서울 열린데이터광장 "실시간 지하�
 **main에 push하면 끝입니다.** 사람이 서버에 들어가지 않습니다.
 
 ```
-push ─→ [GitHub Actions] 테스트 69개 → 이미지(이름표 = 커밋 번호)를 GHCR에 올림
+push ─→ [GitHub Actions] 테스트 80개 → 이미지(이름표 = 커밋 번호)를 GHCR에 올림
                                                      │
         [EC2] 1분마다 "main 이미지가 바뀌었나?" ←──────┘  (pull 방식: GitHub은 서버에 들어오지 않음)
               바뀌었으면 받아서 서버만 교체 → 2분 안에 UP이 아니면 이전 이미지로 되돌림

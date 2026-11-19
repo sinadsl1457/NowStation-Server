@@ -58,6 +58,9 @@ class RideService(
         sessions[id] = RideSession(id, origin, destination, now, stationMaps)
         lastContact[id] = now
         records.save(RideRecord(id, origin, destination, now).also { write(it, sessions.getValue(id).phase, now) })
+        // 이번정거장처럼 시작하자마자 다음에 들어올 열차를 골라 둔다
+        sessions.getValue(id).currentLeg()?.let { refreshIfStale(it.line, now) }
+        suggestTrains(now)
         return id to view(id)
     }
 
@@ -93,37 +96,60 @@ class RideService(
     }
 
     /**
-     * 사용자가 고를 열차 후보. 탑승을 막 시작해 아직 안 받아 온 노선은 지금 받아 온다(고르는 화면이 비어 있지 않게).
-     * 내릴 역과 같은 노선이 있으면 그 노선만(선릉처럼 여러 노선 역에서 엉뚱한 노선 열차를 안 보이게).
+     * 가로 노선도(지금 구간 방향의 역과 열차). 탑승을 막 시작해 아직 안 받아 온 노선은 지금 받아 온다(노선도가 비어 있지 않게).
+     * 경로가 없으면(내릴 역 없음) null.
      */
-    fun trains(id: String): List<TrainChoice> {
+    fun strip(id: String): TrainStrip? {
         val session = session(id)
         val now = Instant.now(clock)
         lastContact[id] = now
-        val origin = session.originStationName
-        val destination = session.destinationStationName
-        val originLines = stationMaps.linesServing(origin)
-        val shared = destination?.let { d -> originLines.filter { it in stationMaps.linesServing(d) } }.orEmpty()
-        val lines = shared.ifEmpty { originLines }
-        for (line in lines) {
-            val last = lastFetched[line]
-            if (last == null || last > now || Duration.between(last, now) >= pollInterval) fetch(line, now)
-        }
-        val states = synchronized(tracker) { lines.flatMap { tracker.states(it) } }
-        return TrainChoices.near(stationMaps, states, origin, destination, now, staleAfter = Duration.ofMinutes(2))
+        val leg = synchronized(session) { session.currentLeg() } ?: return null
+        refreshIfStale(leg.line, now)
+        return synchronized(tracker) { TrainChoices.strip(stationMaps, tracker.states(leg.line), leg, now, STALE_AFTER) }
     }
 
-    /** 사용자가 고른 열차에 탄다. 지금 추적 중인 열차여야 한다. */
+    /** 사용자가 고른 열차. 이미 타는 역을 지난 열차면(늦게 켬) 바로 확정, 아니면 타는 역을 떠날 때 폰과 맞춰 확정한다. */
     @Transactional
     fun choose(id: String, line: SubwayLine, trainNo: String): RideView {
         val session = session(id)
         val now = Instant.now(clock)
         lastContact[id] = now
         val key = TrainKey(line, trainNo)
-        val state = synchronized(tracker) { tracker.state(key) } ?: throw UnknownTrainException(line.apiName, trainNo)
-        synchronized(session) { session.choose(key, state.stationId, now) }
+        val strip = strip(id)
+        val choice = strip?.trains?.firstOrNull { it.key == key }
+        if (choice == null) {
+            // 노선도 밖(경로 없음 등)이라도 지금 추적 중인 열차면 그 열차에 탄다
+            val state = synchronized(tracker) { tracker.state(key) } ?: throw UnknownTrainException(line.apiName, trainNo)
+            synchronized(session) { session.choose(key, state.stationId, now) }
+        } else {
+            val boardId = stationMaps[line].stationId(strip.leg.from)!!
+            synchronized(session) { session.choose(key, boardId, now, confirmed = choice.stopsFromBoard > 0) }
+        }
         remember(id, session.phase)
         return view(id)
+    }
+
+    fun detail(id: String): RideDetail {
+        val session = session(id)
+        val now = Instant.now(clock)
+        return synchronized(session) { synchronized(tracker) { session.detail(tracker, now) } }
+    }
+
+    /** 기다리는 탑승마다 다음에 들어올 열차를 골라 둔다(시작 직후, 놓친 뒤, 환승역에서). */
+    private fun suggestTrains(now: Instant) {
+        for (s in sessions.values) {
+            val leg = synchronized(s) { s.wantsSuggestion() } ?: continue
+            val strip = synchronized(tracker) { TrainChoices.strip(stationMaps, tracker.states(leg.line), leg, now, STALE_AFTER) }
+            val pick = TrainChoices.suggest(strip) ?: continue
+            val boardId = stationMaps[leg.line].stationId(leg.from)!!
+            synchronized(s) { s.choose(pick.key, boardId, now, confirmed = false) }
+            remember(s.id, s.phase)
+        }
+    }
+
+    private fun refreshIfStale(line: SubwayLine, now: Instant) {
+        val last = lastFetched[line]
+        if (last == null || last > now || Duration.between(last, now) >= pollInterval) fetch(line, now)
     }
 
     @Transactional
@@ -138,7 +164,7 @@ class RideService(
     /** 탑승 중인 사람에게 필요한 노선만: 기다리는 역이 있는 노선들 + 타고 있는 열차의 노선. */
     fun linesInUse(): Set<SubwayLine> = sessions.values.flatMap { s ->
         when (val p = s.phase) {
-            is RidePhase.Waiting -> stationMaps.linesServing(p.stationName)
+            is RidePhase.Waiting -> s.currentLeg()?.let { listOf(it.line) } ?: stationMaps.linesServing(p.stationName)
             is RidePhase.Riding -> listOf(p.train.line)
         }
     }.toSet()
@@ -166,6 +192,7 @@ class RideService(
             synchronized(s) { s.tick(now) }
             remember(s.id, s.phase)
         }
+        suggestTrains(now)
         return fetched
     }
 
@@ -206,7 +233,8 @@ class RideService(
     private fun write(record: RideRecord, phase: RidePhase, contactAt: Instant?) {
         when (phase) {
             is RidePhase.Riding -> {
-                record.phase = "RIDING"
+                // 골라 두기만 한 열차는 CHOSEN(배포 뒤에도 확정 전으로 이어 가게. 칸을 늘리지 않으려고 단계 이름으로 구분)
+                record.phase = if (phase.confirmed) "RIDING" else "CHOSEN"
                 record.phaseSince = phase.since
                 record.lastLine = phase.train.line.name
                 record.lastTrainNo = phase.train.trainNo
@@ -236,13 +264,18 @@ class RideService(
         if (Duration.between(r.lastContactAt ?: r.startedAt, now) > idleTimeout) return null
         val since = r.phaseSince ?: r.startedAt
         val line = r.lastLine?.let { runCatching { SubwayLine.valueOf(it) }.getOrNull() }
-        val phase = if (r.phase == "RIDING" && line != null && r.lastTrainNo != null) {
-            RidePhase.Riding(TrainKey(line, r.lastTrainNo!!), r.boardedStationId ?: "", since)
+        val phase = if ((r.phase == "RIDING" || r.phase == "CHOSEN") && line != null && r.lastTrainNo != null) {
+            RidePhase.Riding(TrainKey(line, r.lastTrainNo!!), r.boardedStationId ?: "", since, confirmed = r.phase == "RIDING")
         } else {
             RidePhase.Waiting(r.lastStation ?: r.originStation, since)
         }
         lastContact[id] = now
         log.info("배포 뒤 탑승 이어 감: {} {}", id, phase)
         return RideSession(id, r.originStation, r.destinationStation, r.startedAt, stationMaps, resumedPhase = phase)
+    }
+
+    private companion object {
+        /** 이보다 오래 소식 없는 열차는 노선도에 올리지 않는다. */
+        val STALE_AFTER: Duration = Duration.ofMinutes(2)
     }
 }

@@ -237,4 +237,49 @@ class RideSessionTest {
         h.trains(60, SUIN_BUNDANG, Triple("MINE", "복정", ENTERING), Triple("OTHER", "가천대", ENTERING))
         assertEquals(RideView(RideStatus.MOVING, SUIN_BUNDANG, "복정", "수서", false), h.view(60))
     }
+
+    @Test
+    fun `골라 둔 열차가 타는 역을 떠날 때 폰도 같이 출발하면 탄 것으로 확정`() {
+        val h = Harness("태평", "강남")
+        h.trains(0, SUIN_BUNDANG, Triple("6206", "모란", ENTERING))
+        h.session.choose(TrainKey(SUIN_BUNDANG, "6206"), maps[SUIN_BUNDANG].stationId("태평")!!, at(0), confirmed = false)
+        h.trains(40, SUIN_BUNDANG, Triple("6206", "태평", ARRIVED))
+        h.moving(70)
+        h.trains(110, SUIN_BUNDANG, Triple("6206", "가천대", ENTERING))
+        h.tick(150)
+
+        val p = assertIs<RidePhase.Riding>(h.session.phase)
+        assertEquals("6206", p.train.trainNo)
+        assertEquals(true, p.confirmed)
+        assertEquals("선릉", h.session.detail(h.tracker, at(150)).target)
+    }
+
+    @Test
+    fun `골라 둔 열차가 떠날 때 폰이 가만히 있었으면 놓친 것 - 다시 기다리고 알린다`() {
+        val h = Harness("태평", "강남")
+        h.stopped(0)
+        h.trains(0, SUIN_BUNDANG, Triple("6206", "태평", ARRIVED))
+        h.session.choose(TrainKey(SUIN_BUNDANG, "6206"), maps[SUIN_BUNDANG].stationId("태평")!!, at(0), confirmed = false)
+        h.trains(60, SUIN_BUNDANG, Triple("6206", "가천대", ENTERING))
+        h.tick(200)
+
+        assertEquals(RidePhase.Waiting("태평", at(200)), h.session.phase)
+        assertEquals(RideNotice.MISSED, h.session.detail(h.tracker, at(200)).notice)
+        assertEquals("태평", h.session.wantsSuggestion()?.from, "서비스가 다음 열차를 골라 두도록")
+    }
+
+    @Test
+    fun `폰이 골라 둔 것과 다른 열차와 같이 출발하면 그 열차로 바꾼다`() {
+        val h = Harness("태평", "강남")
+        h.stopped(0)
+        h.trains(0, SUIN_BUNDANG, Triple("FIRST", "태평", ARRIVED), Triple("NEXT", "모란", ENTERING))
+        h.session.choose(TrainKey(SUIN_BUNDANG, "NEXT"), maps[SUIN_BUNDANG].stationId("태평")!!, at(0), confirmed = false)
+        h.moving(20) // 골라 둔 것보다 먼저 온 열차에 탐
+        h.trains(60, SUIN_BUNDANG, Triple("FIRST", "가천대", ENTERING), Triple("NEXT", "태평", ARRIVED))
+        h.tick(120)
+
+        val p = assertIs<RidePhase.Riding>(h.session.phase)
+        assertEquals("FIRST", p.train.trainNo)
+        assertEquals(RideNotice.SWITCHED, h.session.detail(h.tracker, at(120)).notice)
+    }
 }
