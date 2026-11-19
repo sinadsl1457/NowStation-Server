@@ -6,7 +6,7 @@
 지하에서는 GPS가 안 됩니다. 시간표로 추정하면 열차를 놓치거나 열차가 멈춰 서는 순간 틀립니다.
 그래서 서버가 **서울시 실시간 열차 위치**를 받아, 폰이 출발한 순간 그 역을 떠난 열차를 **사용자가 탄 열차**로 찾아 따라갑니다.
 
-클라이언트: [NowStation-Android](https://github.com/sinadsl1457/NowStation-Android)
+클라이언트: [NowStation-Android](https://github.com/sinadsl1457/NowStation-Android) · [NowStation-iOS](https://github.com/sinadsl1457/NowStation-iOS)(개인 테스트용, APNs 없이 Live Activity)
 
 <p align="center"><img src="docs/demo/nowstation-demo.gif" width="300" alt="태평에서 야탑까지: 역 고르기, 탑승 감지, 내릴 준비 알림"></p>
 
