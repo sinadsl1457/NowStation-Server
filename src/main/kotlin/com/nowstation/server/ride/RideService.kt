@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 class UnknownStationException(name: String) : RuntimeException("모르는 역: $name")
 class RideNotFoundException(id: String) : RuntimeException("없는 탑승: $id")
+class UnknownTrainException(line: String, trainNo: String) : RuntimeException("지금 보이지 않는 열차: $line $trainNo")
 
 /**
  * 진행 중인 탑승들과 열차 추적기 하나를 갖는다. 판단은 [RideSession], 여기는 연결·저장·받아 오기 대상 정하기.
@@ -91,6 +92,40 @@ class RideService(
         return synchronized(session) { synchronized(tracker) { session.view(tracker, now) } }
     }
 
+    /**
+     * 사용자가 고를 열차 후보. 탑승을 막 시작해 아직 안 받아 온 노선은 지금 받아 온다(고르는 화면이 비어 있지 않게).
+     * 내릴 역과 같은 노선이 있으면 그 노선만(선릉처럼 여러 노선 역에서 엉뚱한 노선 열차를 안 보이게).
+     */
+    fun trains(id: String): List<TrainChoice> {
+        val session = session(id)
+        val now = Instant.now(clock)
+        lastContact[id] = now
+        val origin = session.originStationName
+        val destination = session.destinationStationName
+        val originLines = stationMaps.linesServing(origin)
+        val shared = destination?.let { d -> originLines.filter { it in stationMaps.linesServing(d) } }.orEmpty()
+        val lines = shared.ifEmpty { originLines }
+        for (line in lines) {
+            val last = lastFetched[line]
+            if (last == null || last > now || Duration.between(last, now) >= pollInterval) fetch(line, now)
+        }
+        val states = synchronized(tracker) { lines.flatMap { tracker.states(it) } }
+        return TrainChoices.near(stationMaps, states, origin, destination, now, staleAfter = Duration.ofMinutes(2))
+    }
+
+    /** 사용자가 고른 열차에 탄다. 지금 추적 중인 열차여야 한다. */
+    @Transactional
+    fun choose(id: String, line: SubwayLine, trainNo: String): RideView {
+        val session = session(id)
+        val now = Instant.now(clock)
+        lastContact[id] = now
+        val key = TrainKey(line, trainNo)
+        val state = synchronized(tracker) { tracker.state(key) } ?: throw UnknownTrainException(line.apiName, trainNo)
+        synchronized(session) { session.choose(key, state.stationId, now) }
+        remember(id, session.phase)
+        return view(id)
+    }
+
     @Transactional
     fun end(id: String) {
         session(id) // 배포 뒤 처음 받은 요청이 끝내기여도 기록을 닫는다
@@ -125,24 +160,29 @@ class RideService(
             // 넉넉할 때는 스케줄러 간격 그대로, 늘렸을 때만 노선마다 마지막으로 받은 시각을 본다
             val last = lastFetched[line]
             if (interval > pollInterval && last != null && Duration.between(last, now) < interval) continue
-            lastFetched[line] = now
-            val (fetchedAt, result) = dataSource.fetch(line) ?: continue
-            fetched += line
-            when (result) {
-                is PositionsResult.Ok -> {
-                    val events = synchronized(tracker) { tracker.update(line, result.trains, fetchedAt) }
-                    sessions.values.forEach { s -> synchronized(s) { s.onTrainEvents(events, fetchedAt) } }
-                }
-                // 키 오류·한도 초과 등 서울시 쪽 문제. 탑승은 그대로 두고(새 소식 없음 → 2분 뒤 STALE) 원인을 남긴다
-                is PositionsResult.Failure -> log.warn("서울시 API 오류({}): {} {}", line.apiName, result.code, result.message)
-                PositionsResult.NoData -> Unit
-            }
+            if (fetch(line, now)) fetched += line
         }
         sessions.values.forEach { s ->
             synchronized(s) { s.tick(now) }
             remember(s.id, s.phase)
         }
         return fetched
+    }
+
+    /** 한 노선을 받아 모든 탑승에 알린다. 받았으면 true. */
+    private fun fetch(line: SubwayLine, now: Instant): Boolean {
+        lastFetched[line] = now
+        val (fetchedAt, result) = dataSource.fetch(line) ?: return false
+        when (result) {
+            is PositionsResult.Ok -> {
+                val events = synchronized(tracker) { tracker.update(line, result.trains, fetchedAt) }
+                sessions.values.forEach { s -> synchronized(s) { s.onTrainEvents(events, fetchedAt) } }
+            }
+            // 키 오류·한도 초과 등 서울시 쪽 문제. 탑승은 그대로 두고(새 소식 없음 → 2분 뒤 STALE) 원인을 남긴다
+            is PositionsResult.Failure -> log.warn("서울시 API 오류({}): {} {}", line.apiName, result.code, result.message)
+            PositionsResult.NoData -> Unit
+        }
+        return true
     }
 
     private fun expireIdle(now: Instant) {

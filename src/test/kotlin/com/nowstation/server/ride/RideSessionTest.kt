@@ -182,4 +182,59 @@ class RideSessionTest {
         h.tick(400)
         assertEquals("T", h.riding().trainNo, "가천대에서 내린 게 아니다")
     }
+
+    @Test
+    fun `이미 타고 가다가 켤 때 출발역을 열차가 곧 설 역(개포동)으로 하면 내 열차를 찾는다`() {
+        val h = Harness("개포동", "왕십리")
+        h.trains(0, SUIN_BUNDANG, Triple("MINE", "대모산입구", ENTERING), Triple("BEHIND", "수서", ARRIVED))
+        h.stopped(40) // 내 열차가 개포동에 섬
+        h.trains(45, SUIN_BUNDANG, Triple("MINE", "개포동", ARRIVED), Triple("BEHIND", "대모산입구", ENTERING))
+        h.moving(70) // 개포동 출발
+        h.trains(110, SUIN_BUNDANG, Triple("MINE", "구룡", ENTERING), Triple("BEHIND", "대모산입구", ARRIVED))
+        h.stopped(130) // 구룡에 섬
+        h.moving(160) // 구룡 출발. 마침 뒤 열차가 개포동에 들어옴
+        h.trains(170, SUIN_BUNDANG, Triple("MINE", "도곡", ENTERING), Triple("BEHIND", "개포동", ARRIVED))
+        h.tick(200)
+
+        assertEquals("MINE", h.riding().trainNo)
+    }
+
+    @Test
+    fun `이미 지나온 역을 출발역으로 하면 뒤 열차를 탄 것으로 잘못 따라간다(현재 한계)`() {
+        val h = Harness("개포동", "왕십리")
+        // 내 열차는 이미 개포동을 떠나 구룡에 들어옴. 뒤 열차가 개포동에 서 있음
+        h.trains(0, SUIN_BUNDANG, Triple("MINE", "구룡", ENTERING), Triple("BEHIND", "개포동", ARRIVED))
+        h.stopped(20) // 구룡에 섬
+        h.moving(50) // 구룡 출발 = 마침 뒤 열차도 개포동 출발
+        h.trains(90, SUIN_BUNDANG, Triple("MINE", "도곡", ENTERING), Triple("BEHIND", "구룡", ENTERING))
+        h.tick(130)
+
+        assertEquals("BEHIND", h.riding().trainNo)
+    }
+
+    @Test
+    fun `탄 열차가 이미 출발한 뒤에 누르면(자리에 앉고 나서) 출발역 태평으로는 내 열차를 못 찾는다(현재 한계)`() {
+        val h = Harness("태평", "왕십리")
+        // 내 열차는 누르기 20초 전에 태평을 떠남. 뒤 열차는 아직 멀리
+        h.trains(0, SUIN_BUNDANG, Triple("MINE", "태평", ARRIVED))
+        h.trains(40, SUIN_BUNDANG, Triple("MINE", "가천대", ENTERING))
+        h.stopped(60) // 가천대에 섬
+        h.moving(90) // 가천대 출발
+        h.trains(130, SUIN_BUNDANG, Triple("MINE", "복정", ENTERING))
+        h.tick(300)
+
+        assertIs<RidePhase.Waiting>(h.session.phase)
+    }
+
+    @Test
+    fun `사용자가 고른 열차는 폰 움직임 없이 바로 타고, 그 열차를 따라간다`() {
+        val h = Harness("태평", "왕십리")
+        h.trains(0, SUIN_BUNDANG, Triple("MINE", "가천대", ARRIVED), Triple("OTHER", "태평", ARRIVED))
+        val gachon = maps[SUIN_BUNDANG].stationId("가천대")!!
+        h.session.choose(TrainKey(SUIN_BUNDANG, "MINE"), gachon, at(5))
+
+        assertEquals("MINE", h.riding().trainNo)
+        h.trains(60, SUIN_BUNDANG, Triple("MINE", "복정", ENTERING), Triple("OTHER", "가천대", ENTERING))
+        assertEquals(RideView(RideStatus.MOVING, SUIN_BUNDANG, "복정", "수서", false), h.view(60))
+    }
 }

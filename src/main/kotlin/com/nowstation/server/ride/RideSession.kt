@@ -38,7 +38,7 @@ data class RideView(
  */
 class RideSession(
     val id: String,
-    originStationName: String,
+    val originStationName: String,
     val destinationStationName: String?,
     startedAt: Instant,
     private val stationMaps: StationMaps,
@@ -70,6 +70,13 @@ class RideSession(
             }
         }
         tick(now)
+    }
+
+    /** 사용자가 고른 열차에 바로 탄다(폰 움직임으로 맞히지 않는다). 이미 타고 있어도 바꿔 탄다(잘못 고른 걸 다시 고름). */
+    fun choose(train: TrainKey, stationId: String, now: Instant) {
+        phase = RidePhase.Riding(train, stationId, now)
+        candidates.clear()
+        pendingAlight = null
     }
 
     /** 미뤄 둔 판단을 확정한다. 주기적으로 불러야 한다(폰 움직임이 끝내 안 오는 경우). */

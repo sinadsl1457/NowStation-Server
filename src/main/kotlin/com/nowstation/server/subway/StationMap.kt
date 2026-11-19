@@ -54,6 +54,21 @@ class StationMap(
         return false
     }
 
+    /** [stationId]에서 [heading] 쪽으로 몇 정거장 가면 [stationName]인지(같은 역이면 0). 그쪽으로 안 나오면 null. */
+    fun stopsTo(stationId: String, heading: Heading, stationName: String, terminalId: String? = null): Int? {
+        if (station(stationId)?.name == stationName) return 0
+        var id = stationId
+        for (stops in 1..byId.size) {
+            val next = next(id, heading, terminalId) ?: return null
+            if (next.name == stationName) return stops
+            id = next.id
+        }
+        return null
+    }
+
+    /** 이 이름의 역 ID(노선 안에서 하나). */
+    fun stationId(name: String): String? = byId.values.firstOrNull { it.name == name }?.id
+
     private fun pathOf(stationId: String, terminalId: String?): StationPath? {
         val candidates = paths.filter { p -> p.stations.any { it.id == stationId } }
         if (candidates.size <= 1) return candidates.firstOrNull()
