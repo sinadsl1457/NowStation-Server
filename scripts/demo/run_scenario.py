@@ -53,7 +53,8 @@ SCENARIOS = {
         "title": "태평에서 6064는 놓치고 6518에 탄다",
         "start": "09:42:00",
         "origin": ("태평", "xovud"),
-        "destination": None,
+        # 앱이 내릴 역을 필수로 바꿔 넣었다. 6518이 가는 쪽(가천대 → 복정)이라 탈 열차 고르기에는 영향 없음
+        "destination": ("복정", "qhrwjd"),
         "moves": ["09:53:05"],
         "stops": ["09:53:45"],
         "offline": [],
@@ -164,8 +165,7 @@ def start_ride(sc) -> None:
     adb("shell", "am", "start", "-n", MAIN_ACTIVITY)
     time.sleep(3)
     pick_station("타는 역", *sc["origin"])
-    if sc["destination"]:
-        pick_station("내릴 역 (선택)", *sc["destination"])
+    pick_station("내릴 역", *sc["destination"])  # 앱에서 내릴 역이 필수가 됐다
     tap_text("탑승 시작")
     time.sleep(2)
 
