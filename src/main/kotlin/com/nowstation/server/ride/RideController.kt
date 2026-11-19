@@ -6,6 +6,7 @@ import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotEmpty
 import jakarta.validation.constraints.Size
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
@@ -27,6 +28,9 @@ data class StartRideRequest(@field:NotBlank val originStation: String, val desti
 data class MotionRequest(@field:NotEmpty @field:Size(max = 100) val events: List<MotionItem>, val sentAt: Instant)
 data class MotionItem(val kind: MotionKind, val at: Instant)
 
+/** 앱의 시험용 기록(운영체제의 "탈것" 판단, 버린 출발). 실기기 시험에서 무엇이 일어났는지 서버 로그로 본다. */
+data class NotesRequest(@field:Size(max = 50) val lines: List<@Size(max = 200) String>)
+
 /** 앱이 그대로 그리면 되는 모양. 노선은 표시 이름(2호선)으로 준다. */
 data class RideResponse(
     val rideId: String,
@@ -43,6 +47,8 @@ private fun RideView.toResponse(id: String) =
 @RestController
 @RequestMapping("/api")
 class RideController(private val rides: RideService, private val stations: StationMaps) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
 
     /** 노선은 표시 이름(2호선, 수인분당선)으로 준다. 탑승 조회 응답과 같은 형식. */
     @GetMapping("/stations")
@@ -63,6 +69,12 @@ class RideController(private val rides: RideService, private val stations: Stati
     @PostMapping("/rides/{id}/motion")
     fun motion(@PathVariable id: String, @Valid @RequestBody request: MotionRequest): RideResponse =
         rides.motion(id, request.events.map { it.kind to it.at }, request.sentAt).toResponse(id)
+
+    @PostMapping("/rides/{id}/notes")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun notes(@PathVariable id: String, @Valid @RequestBody request: NotesRequest) {
+        request.lines.forEach { log.info("기록 {}: {}", id.take(8), it) }
+    }
 
     @GetMapping("/rides/{id}")
     fun get(@PathVariable id: String): RideResponse = rides.view(id).toResponse(id)

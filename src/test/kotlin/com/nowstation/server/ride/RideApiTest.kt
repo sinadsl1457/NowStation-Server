@@ -176,6 +176,21 @@ class RideApiTest {
     }
 
     @Test
+    fun `앱의 시험용 기록은 받아서 로그로만 남기고, 너무 많으면 400`() {
+        clock.now = kst("09:45:00")
+        val id = startRide("태평", "야탑")
+        mvc.post("/api/rides/$id/notes") {
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"lines":["운영체제 판단 탈것 09:44:58"]}"""
+        }.andExpect { status { isNoContent() } }
+        val many = (1..51).joinToString(",") { "\"줄 $it\"" }
+        mvc.post("/api/rides/$id/notes") {
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"lines":[$many]}"""
+        }.andExpect { status { isBadRequest() } }
+    }
+
+    @Test
     fun `한티에서 시작해 선릉 환승 후 강남 직전 알림까지 API로`() {
         clock.now = kst("09:45:00")
         val id = startRide("한티", "강남")
