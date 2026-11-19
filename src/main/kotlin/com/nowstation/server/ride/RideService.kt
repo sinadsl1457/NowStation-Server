@@ -43,6 +43,7 @@ class RideService(
     private val sessions = ConcurrentHashMap<String, RideSession>()
     /** 앱이 마지막으로 물어본 시각(시작·움직임·조회). */
     private val lastContact = ConcurrentHashMap<String, Instant>()
+    private val loggedPhase = ConcurrentHashMap<String, RidePhase>()
     private val lastFetched = ConcurrentHashMap<SubwayLine, Instant>()
     private val tracker = TrainTracker()
     @Volatile private var pacedInterval: Duration? = pollInterval
@@ -95,6 +96,7 @@ class RideService(
         session(id) // 배포 뒤 처음 받은 요청이 끝내기여도 기록을 닫는다
         sessions.remove(id)
         lastContact.remove(id)
+        loggedPhase.remove(id)
         records.findById(id).ifPresent { it.endedAt = Instant.now(clock) }
     }
 
@@ -148,13 +150,15 @@ class RideService(
         for (id in idle) {
             sessions.remove(id)
             lastContact.remove(id)
+            loggedPhase.remove(id)
             records.findById(id).ifPresent { it.endedAt = now }
             log.info("앱 소식이 {}분 넘게 없어 탑승 종료: {}", idleTimeout.toMinutes(), id)
         }
     }
 
     private fun remember(id: String, phase: RidePhase) {
-        log.info("단계 {}: {}", id.take(8), phase)
+        // 받아 오기마다 불리므로 바뀐 때만 남긴다
+        if (loggedPhase.put(id, phase) != phase) log.info("단계 {}: {}", id.take(8), phase)
         val record = records.findById(id).orElse(null) ?: return
         write(record, phase, lastContact[id])
     }
