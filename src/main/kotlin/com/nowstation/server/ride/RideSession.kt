@@ -214,8 +214,11 @@ class RideSession(
             line = line,
             thisStation = thisStation?.name,
             nextStation = nextStation?.name,
-            // 한 정거장 전부터: 출발 상태를 주지 않는 노선(수인분당)은 내릴 역에 들어서야 떠난 걸 알아 알림이 늦었다
-            prepareToAlight = (route?.legOn(line)?.to ?: destinationStationName)?.let { thisStation?.name == it || nextStation?.name == it } == true,
+            // 한 정거장 전부터 알림(출발 상태를 주지 않는 노선은 내릴 역에 들어서야 떠난 걸 알아 늦었다). 단 타는 역에 있는 동안은 아니다
+            // (태평 → 야탑에서 열차가 태평에 있을 때 켜지면 안 됨). 화면을 통째로 바꾸는 건 앱이 thisStation == target일 때만
+            prepareToAlight = (route?.legOn(line) ?: route?.legs?.lastOrNull())?.let { leg ->
+                thisStation?.name == leg.to || (nextStation?.name == leg.to && thisStation?.name != leg.from)
+            } ?: (destinationStationName != null && thisStation?.name == destinationStationName),
         )
     }
 

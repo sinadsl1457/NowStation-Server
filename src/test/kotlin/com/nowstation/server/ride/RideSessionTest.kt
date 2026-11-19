@@ -262,7 +262,7 @@ class RideSessionTest {
         val h = Harness("한티", "선릉")
         h.trains(0, SUIN_BUNDANG, Triple("T", "한티", ARRIVED))
         h.session.choose(TrainKey(SUIN_BUNDANG, "T"), maps[SUIN_BUNDANG].stationId("한티")!!, at(0))
-        assertEquals(true, h.view(0).prepareToAlight, "다음 역이 선릉")
+        assertEquals(false, h.view(0).prepareToAlight, "아직 타는 역(한티)에 있다")
         h.trains(100, SUIN_BUNDANG, Triple("T", "선릉", ARRIVED))
         assertIs<RidePhase.Arrived>(h.session.phase)
         assertEquals(RideStatus.ARRIVED, h.view(100).status)
@@ -283,5 +283,15 @@ class RideSessionTest {
         h.trains(450, SUIN_BUNDANG, Triple("9038", "모란", ARRIVED), updn = "1")
         assertEquals(RideStatus.ARRIVED, h.view(450).status)
         assertEquals("태평", h.view(450).thisStation, "열차가 모란으로 가도 태평 도착 그대로")
+    }
+
+    @Test
+    fun `열차가 타는 역에 있는 동안에는 내릴 준비를 켜지 않는다(한 정거장 경로)`() {
+        val h = Harness("태평", "모란")
+        h.trains(0, SUIN_BUNDANG, Triple("T", "태평", ARRIVED), updn = "1")
+        h.session.choose(TrainKey(SUIN_BUNDANG, "T"), maps[SUIN_BUNDANG].stationId("태평")!!, at(0))
+        assertEquals(false, h.view(0).prepareToAlight, "태평에 서 있을 때 다음 역이 모란이어도 아직 아니다")
+        h.trains(100, SUIN_BUNDANG, Triple("T", "모란", ENTERING), updn = "1")
+        assertIs<RidePhase.Arrived>(h.session.phase)
     }
 }
