@@ -9,6 +9,7 @@ on:
     paths-ignore:
       - "**.md"
       - "docs/**"
+      - "scripts/demo/**" # 시연 스크립트는 서버 이미지에 안 들어간다(실기기 시험 중 재배포로 탑승이 끊긴 적 있음)
   workflow_dispatch: # Actions 화면에서 손으로 다시 돌리기
 
 permissions:

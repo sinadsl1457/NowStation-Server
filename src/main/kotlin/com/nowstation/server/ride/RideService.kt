@@ -68,6 +68,8 @@ class RideService(
         val session = session(id)
         val now = Instant.now(clock)
         lastContact[id] = now
+        // 실기기 시험 때 "폰이 움직임을 언제 잰 것으로 보냈나"를 보려고 남긴다(iOS 시각 밀림 버그는 이게 없어 못 증명했다)
+        log.info("움직임 {}: {}", id.take(8), events.joinToString { (kind, at) -> "$kind ${Duration.between(at, sentAt).seconds}초 전" })
         val phase = synchronized(session) {
             val before = session.phase
             for ((kind, at) in events) {
@@ -152,6 +154,7 @@ class RideService(
     }
 
     private fun remember(id: String, phase: RidePhase) {
+        log.info("단계 {}: {}", id.take(8), phase)
         val record = records.findById(id).orElse(null) ?: return
         write(record, phase, lastContact[id])
     }
