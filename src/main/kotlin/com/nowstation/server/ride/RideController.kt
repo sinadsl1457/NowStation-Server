@@ -60,6 +60,9 @@ data class TrainStripResponse(
     val stations: List<String>,
     val boardIndex: Int,
     val trains: List<StripTrainResponse>,
+    /** 이 노선 정거장 하나 평균 초(정차 포함)와 정차 초: 앱이 받은 위치 사이 움직임을 그리는 기준. */
+    val secondsPerStop: Int = 130,
+    val dwellSeconds: Int = 30,
 )
 data class StripTrainResponse(
     val trainNo: String,
@@ -70,6 +73,12 @@ data class StripTrainResponse(
     val selected: Boolean,
     /** 이 위치를 서버가 마지막으로 받은 지 몇 초. */
     val seenSecondsAgo: Long,
+    /** 전광판 말투: "[2]번째 전역 (야탑)", "전역 도착 (모란)", "태평 진입". */
+    val message: String = "",
+    /** 타는 역까지 대략 몇 분(0: 지금 타는 역). 이미 지났으면 null. */
+    val etaMinutes: Int? = null,
+    /** 이 역에 있는 걸 처음 본 지 몇 초: 앱이 다음 역까지 움직임을 이어 그린다. */
+    val atStationSeconds: Long = 0,
 )
 data class ChooseTrainRequest(@field:NotBlank val line: String, @field:NotBlank val trainNo: String)
 
@@ -116,9 +125,11 @@ class RideController(private val rides: RideService, private val stations: Stati
         val strip = rides.strip(id) ?: return ResponseEntity.noContent().build()
         val now = clock.instant()
         val selected = rides.detail(id).train
-        return ResponseEntity.ok(TrainStripResponse(strip.leg.toResponse(), strip.stations, strip.boardIndex, strip.trains.map {
+        val perStop = (TrainChoices.minutesPerStop(strip.leg.line) * 60).toInt()
+        return ResponseEntity.ok(TrainStripResponse(strip.leg.toResponse().copy(stations = emptyList()), strip.stations, strip.boardIndex, secondsPerStop = perStop, trains = strip.trains.map {
             StripTrainResponse(it.key.trainNo, it.stationName, it.status.name, it.terminalName, it.key == selected,
-                Duration.between(it.seenAt, now).seconds.coerceAtLeast(0))
+                Duration.between(it.seenAt, now).seconds.coerceAtLeast(0), it.message, it.etaMinutes,
+                Duration.between(it.atStationSince, now).seconds.coerceAtLeast(0))
         }))
     }
 

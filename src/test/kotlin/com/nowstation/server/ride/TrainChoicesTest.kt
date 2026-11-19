@@ -20,8 +20,8 @@ class TrainChoicesTest {
     private val map = maps[SUIN_BUNDANG]
     private val leg = RoutePlanner.plan(maps, "태평", "강남")!!.legs.first()
 
-    private fun train(no: String, station: String, status: TrainStatus = ARRIVED, updn: String = "0", terminal: String = "왕십리", seenAgo: Long = 10) =
-        TrainState(TrainKey(SUIN_BUNDANG, no), map.stationId(station)!!, status, updn, map.stationId(terminal)!!, now, now.minusSeconds(seenAgo))
+    private fun train(no: String, station: String, status: TrainStatus = ARRIVED, updn: String = "0", terminal: String = "왕십리", seenAgo: Long = 10, express: Boolean = false) =
+        TrainState(TrainKey(SUIN_BUNDANG, no), map.stationId(station)!!, status, updn, map.stationId(terminal)!!, now, now.minusSeconds(seenAgo), express = express)
 
     private fun strip(vararg trains: TrainState) = TrainChoices.strip(maps, trains.toList(), leg, now, Duration.ofMinutes(2))
 
@@ -51,5 +51,25 @@ class TrainChoicesTest {
         assertEquals("6206", TrainChoices.suggest(strip(train("6208", "이매"), train("6206", "모란"), train("6204", "복정")))?.key?.trainNo)
         assertEquals("AT", TrainChoices.suggest(strip(train("AT", "태평"), train("6206", "모란")))?.key?.trainNo)
         assertEquals("6206", TrainChoices.suggest(strip(train("GONE", "태평", DEPARTED), train("6206", "모란")))?.key?.trainNo, "이미 떠난 열차는 고르지 않는다")
+    }
+
+    @Test
+    fun `전광판 말투와 약 몇 분`() {
+        val s = strip(train("AT", "태평", ENTERING), train("PREV", "모란"), train("FAR", "야탑"))
+        assertEquals(
+            listOf("FAR" to "[2]번째 전역 (야탑)", "PREV" to "전역 도착 (모란)", "AT" to "태평 진입"),
+            s.trains.map { it.key.trainNo to it.message },
+        )
+        assertEquals(listOf(4, 2, 0), s.trains.map { it.etaMinutes })
+    }
+
+    @Test
+    fun `급행과 구간 끝(선릉)까지 가지 않는 열차는 뺀다`() {
+        val s = strip(
+            train("EXP", "모란", express = true), // 태평에 서지 않는 급행
+            train("SHORT", "모란", terminal = "수서"), // 수서에서 끝나 선릉까지 못 감
+            train("OK", "야탑"),
+        )
+        assertEquals(listOf("OK"), s.trains.map { it.key.trainNo })
     }
 }

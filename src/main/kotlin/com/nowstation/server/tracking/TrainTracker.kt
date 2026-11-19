@@ -20,6 +20,8 @@ data class TrainState(
     val lastSeen: Instant,
     /** 이 역에 있는 것을 처음 본 시각(같은 역 안에서 진입→도착→출발로 바뀌어도 유지). */
     val arrivedAt: Instant? = null,
+    /** 급행(서지 않는 역이 있다). */
+    val express: Boolean = false,
 )
 
 /** 위치 변화에서 뽑은 사건. 시각은 모두 서버가 관측한 시각이다(실제보다 30~50초 늦다). */
@@ -66,7 +68,7 @@ class TrainTracker(private val forgetAfter: Duration = Duration.ofMinutes(5)) {
         for (p in positions) {
             val key = TrainKey(line, p.trainNo)
             val prev = states[key]
-            val current = TrainState(key, p.stationId, p.status, p.direction, p.terminalStationId, observedAt, observedAt, arrivedAt = observedAt)
+            val current = TrainState(key, p.stationId, p.status, p.direction, p.terminalStationId, observedAt, observedAt, arrivedAt = observedAt, express = p.express)
             when {
                 // 처음 보는 열차는 실제로 언제 왔는지 모르지만, 적어도 지금부터는 이 역에 있었다
                 prev == null -> states[key] = current
