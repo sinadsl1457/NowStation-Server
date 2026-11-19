@@ -65,7 +65,7 @@ class RideSession(
     fun onTrainEvents(events: List<TrainEvent>, now: Instant) {
         for (e in events.filterIsInstance<TrainEvent.Departed>()) {
             when (val p = phase) {
-                is RidePhase.Waiting -> if (nameOf(e.key.line, e.stationId) == p.stationName) candidates += e
+                is RidePhase.Waiting -> if (nameOf(e.key.line, e.stationId) == p.stationName && headsToDestination(e)) candidates += e
                 is RidePhase.Riding -> if (e.key == p.train) pendingAlight = e
             }
         }
@@ -159,6 +159,18 @@ class RideSession(
             nextStation = nextStation?.name,
             prepareToAlight = destinationStationName != null && thisStation?.name == destinationStationName,
         )
+    }
+
+    /**
+     * 내릴 역이 이 열차의 노선에 있으면 그쪽으로 가는 열차만 후보로 본다. 반대편 열차가 떠날 때 승강장에서 폰이 흔들려도 타지 않게.
+     * 내릴 역이 다른 노선(갈아타야 함)이거나 방향 값을 모르면 거르지 않는다.
+     */
+    private fun headsToDestination(d: TrainEvent.Departed): Boolean {
+        val destination = destinationStationName ?: return true
+        val map = stationMaps[d.key.line]
+        if (map.paths.none { p -> p.stations.any { it.name == destination } }) return true
+        val heading = map.heading(d.direction) ?: return true
+        return map.reaches(d.stationId, heading, destination, d.terminalStationId)
     }
 
     private fun nameOf(line: SubwayLine, stationId: String): String? = stationMaps[line].station(stationId)?.name

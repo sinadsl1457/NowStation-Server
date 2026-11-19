@@ -54,6 +54,25 @@ class RideSessionTest {
     }
 
     @Test
+    fun `내릴 역이 있으면 반대 방향 열차가 떠날 때 폰이 흔들려도 타지 않고, 내릴 역 쪽 열차를 기다린다`() {
+        val h = Harness("태평", "야탑")
+        h.stopped(0)
+        h.trains(0, SUIN_BUNDANG, Triple("W", "태평", ARRIVED), updn = "0") // 가천대·복정 방면
+        h.moving(30) // 승강장에서 걷다 흔들림. 마침 반대편 W가 떠남
+        h.stopped(50)
+        h.trains(70, SUIN_BUNDANG, Triple("W", "가천대", ENTERING), updn = "0")
+        h.tick(200)
+        assertIs<RidePhase.Waiting>(h.session.phase, "야탑에 가지 않는 열차다")
+
+        h.trains(300, SUIN_BUNDANG, Triple("Y", "태평", ARRIVED), updn = "1") // 모란·야탑 방면
+        h.moving(330)
+        h.trains(370, SUIN_BUNDANG, Triple("Y", "모란", ENTERING), updn = "1")
+
+        assertEquals("Y", h.riding().trainNo)
+        assertEquals(RideView(RideStatus.MOVING, SUIN_BUNDANG, "모란", "야탑", false), h.view(370))
+    }
+
+    @Test
     fun `첫 열차를 놓치면 무시하고 폰과 같이 출발한 다음 열차를 따라간다`() {
         val h = Harness("태평")
         h.stopped(0)

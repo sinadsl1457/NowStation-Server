@@ -35,7 +35,7 @@ class TrainTrackerTest {
 
         val key = TrainKey(SubwayLine.SUIN_BUNDANG, "1")
         assertEquals(
-            listOf(TrainEvent.Departed(key, "태평", at(20), explicit = false, arrivedObservedAt = at(0)), TrainEvent.Arrived(key, "가천대", at(20))),
+            listOf(TrainEvent.Departed(key, "태평", at(20), explicit = false, arrivedObservedAt = at(0), direction = "0", terminalStationId = "T"), TrainEvent.Arrived(key, "가천대", at(20))),
             events,
         )
     }
@@ -49,7 +49,7 @@ class TrainTrackerTest {
         val departed = tracker.update(SubwayLine.LINE_2, listOf(pos("2084", "선릉", TrainStatus.DEPARTED, SubwayLine.LINE_2)), at(20))
         val arrived = tracker.update(SubwayLine.LINE_2, listOf(pos("2084", "역삼", TrainStatus.ENTERING, SubwayLine.LINE_2)), at(40))
 
-        assertEquals(listOf(TrainEvent.Departed(key, "선릉", at(20), explicit = true, arrivedObservedAt = at(0))), departed)
+        assertEquals(listOf(TrainEvent.Departed(key, "선릉", at(20), explicit = true, arrivedObservedAt = at(0), direction = "0", terminalStationId = "T")), departed)
         assertEquals(listOf(TrainEvent.Arrived(key, "역삼", at(40))), arrived)
     }
 

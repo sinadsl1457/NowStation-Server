@@ -2,7 +2,9 @@ package com.nowstation.server.subway
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class StationMapTest {
     private fun s(id: String, name: String) = Station(id, name)
@@ -43,5 +45,17 @@ class StationMapTest {
     @Test
     fun `모르는 역은 null`() {
         assertNull(map.next("999", Heading.ASCENDING))
+    }
+
+    @Test
+    fun `가는 쪽에 그 역이 있는지, 순환선은 어느 쪽이든, 지선은 종착역이 지선일 때만`() {
+        assertTrue(map.reaches("201", Heading.ASCENDING, "강남"))
+        assertTrue(map.reaches("201", Heading.DESCENDING, "강남"))
+        assertFalse(map.reaches("201", Heading.ASCENDING, "용답"), "본선 열차는 지선에 가지 않는다")
+        assertTrue(map.reaches("211", Heading.ASCENDING, "신설동", terminalId = "2114"))
+
+        val line = StationMap(SubwayLine.SUIN_BUNDANG, listOf(StationPath("본선", listOf(s("1", "가천대"), s("2", "태평"), s("3", "모란")))), emptyMap())
+        assertTrue(line.reaches("2", Heading.ASCENDING, "모란"))
+        assertFalse(line.reaches("2", Heading.DESCENDING, "모란"))
     }
 }

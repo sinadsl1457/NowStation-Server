@@ -40,6 +40,20 @@ class StationMap(
         }
     }
 
+    /**
+     * [stationId]에서 [heading] 쪽으로 가면 [stationName]이 나오는지. 2호선 본선처럼 도는 노선은 어느 쪽이든 나온다.
+     * 종착역에서 멈추지 않는다: 중간에 끝나는 열차라도 그쪽으로 가는 열차를 탔을 수 있다.
+     */
+    fun reaches(stationId: String, heading: Heading, stationName: String, terminalId: String? = null): Boolean {
+        var id = stationId
+        repeat(byId.size) {
+            val next = next(id, heading, terminalId) ?: return false
+            if (next.name == stationName) return true
+            id = next.id
+        }
+        return false
+    }
+
     private fun pathOf(stationId: String, terminalId: String?): StationPath? {
         val candidates = paths.filter { p -> p.stations.any { it.id == stationId } }
         if (candidates.size <= 1) return candidates.firstOrNull()
