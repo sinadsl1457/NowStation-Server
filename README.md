@@ -8,9 +8,9 @@
 
 클라이언트: [NowStation-Android](https://github.com/sinadsl1457/NowStation-Android) · [NowStation-iOS](https://github.com/sinadsl1457/NowStation-iOS)(개인 테스트용, APNs 없이 Live Activity)
 
-<p align="center"><img src="docs/demo/nowstation-demo.gif" width="300" alt="태평에서 야탑까지: 역 고르기, 탑승 감지, 내릴 준비 알림"></p>
+<p align="center"><img src="docs/demo/nowstation-demo.gif" width="300" alt="태평에서 야탑까지: 역 고르기, 다가오는 열차 고르기, 한 정거장 전 알림, 내릴 준비, 도착"></p>
 
-<p align="center"><sub>2026-11-16 오전에 녹화한 실제 열차 위치를 재생 서버로 흘리고, 에뮬레이터 센서에 열차 출발·정차를 넣어 찍은 장면(6분 23초 → 36초 요약, <a href="docs/demo/nowstation-demo.mp4">mp4</a>)</sub></p>
+<p align="center"><sub>2026-11-16 오전에 녹화한 실제 열차 위치를 재생 서버로 흘리고, 에뮬레이터 센서에 열차 출발·정차를 넣어 찍은 장면(6분 43초 → 35초 요약, <a href="docs/demo/nowstation-demo.mp4">mp4</a>)</sub></p>
 
 ## 핵심 아이디어: "어느 열차를 탔나"를 시간표가 아니라 실제 움직임으로
 
