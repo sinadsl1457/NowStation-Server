@@ -48,6 +48,10 @@ data class RideResponse(
     /** 이번 구간 끝(환승역·내릴 역)과 남은 정거장. */
     val target: String? = null,
     val remainingStops: Int? = null,
+    /** 최종 목적지까지 남은 정거장(앱이 늘 보여 주는 숫자). */
+    val totalRemainingStops: Int? = null,
+    /** 최종 목적지(내릴 역). */
+    val destination: String? = null,
     /** TRANSFER: 환승역에 도착(다음 구간 열차를 골라 둠). 잠깐만 온다. */
     val notice: String? = null,
 )
@@ -86,7 +90,8 @@ private fun Leg.toResponse() = LegResponse(line.apiName, from, to, stations)
 
 private fun RideView.toResponse(id: String, d: RideDetail) =
     RideResponse(id, status, line?.apiName, thisStation, nextStation, prepareToAlight,
-        d.route?.legs?.map { it.toResponse() }.orEmpty(), d.train?.trainNo, d.target, d.remainingStops, d.notice?.name)
+        d.route?.legs?.map { it.toResponse() }.orEmpty(), d.train?.trainNo, d.target, d.remainingStops,
+        totalRemainingStops = d.totalRemainingStops, destination = d.route?.legs?.lastOrNull()?.to, notice = d.notice?.name)
 
 @RestController
 @RequestMapping("/api")

@@ -32,6 +32,8 @@ data class RideDetail(
     val target: String?,
     val remainingStops: Int?,
     val notice: RideNotice?,
+    /** 최종 목적지까지 남은 정거장(지금 구간 남은 수 + 다음 구간들, 환승역은 한 번). 환승이 여러 번이어도 사용자가 보는 숫자는 이것 하나. */
+    val totalRemainingStops: Int? = null,
 )
 
 enum class RideStatus { WAITING, AT_STATION, MOVING, HOLDING_BETWEEN, STALE, ARRIVED }
@@ -143,7 +145,12 @@ class RideSession(
             }
         } else null
         val shown = notice?.takeIf { Duration.between(it.second, now) < NOTICE_FOR }?.first
-        return RideDetail(route, train, target, remaining, shown)
+        val total = remaining?.let { r ->
+            val legs = route?.legs.orEmpty()
+            val at = legs.indexOfFirst { it.to == target }
+            r + if (at >= 0) legs.drop(at + 1).sumOf { it.stops } else 0
+        }
+        return RideDetail(route, train, target, remaining, shown, total)
     }
 
 

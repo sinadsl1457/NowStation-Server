@@ -309,4 +309,14 @@ class RideSessionTest {
         assertEquals("야탑", h.view(150).thisStation, "데이터는 아직 모란 진입이지만 폰이 모란을 떠났다")
         assertEquals(true, h.view(150).prepareToAlight)
     }
+
+    @Test
+    fun `최종 목적지까지 남은 정거장은 지금 구간 남은 수와 다음 구간을 더한다`() {
+        val h = Harness("태평", "강남")
+        h.trains(0, SUIN_BUNDANG, Triple("T", "수서", ARRIVED))
+        h.session.choose(TrainKey(SUIN_BUNDANG, "T"), maps[SUIN_BUNDANG].stationId("태평")!!, at(0))
+        val d = h.session.detail(h.tracker, at(0))
+        assertEquals(6, d.remainingStops, "수서 → 선릉")
+        assertEquals(8, d.totalRemainingStops, "수서 → 선릉 6 + 선릉 → 강남 2")
+    }
 }
