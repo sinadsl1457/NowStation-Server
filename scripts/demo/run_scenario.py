@@ -12,6 +12,7 @@
   python3 scripts/demo/run_scenario.py transfer
   python3 scripts/demo/run_scenario.py missed
   python3 scripts/demo/run_scenario.py rush       # 퇴근 시간 합성 데이터: 강남 → 태평(먼저 make_rush_hour.py)
+  python3 scripts/demo/run_scenario.py rush_up --record   # 합성 데이터 태평 → 강남(선릉 환승), 시연 영상용
   python3 scripts/demo/run_scenario.py yatap --mode=background   # 시작 뒤 YouTube를 앞에 띄움
   python3 scripts/demo/run_scenario.py yatap --mode=locked       # 시작 뒤 PIN 잠금 + 화면 끔
   python3 scripts/demo/run_scenario.py yatap --mode=story --record  # 앱 화면 → 도중에 YouTube로 → 위로 하차 팝업, 화면 녹화
@@ -50,6 +51,30 @@ def kst(hms: str, day: str = DAY) -> datetime:
 
 # 폰 움직임 시각은 서버 RecordedScenarioTest와 같다(녹화 관측 시각에서 API 지연 30~50초를 뺀 값).
 SCENARIOS = {
+    "rush_up": {
+        "title": "퇴근 시간(합성 데이터) 태평 → 강남: 들어오는 열차 고르기, 한티에서 환승 띠, 선릉에서 2호선으로, 역삼에서 내릴 준비, 강남 도착",
+        # 실제 녹화가 아니다: make_rush_hour.py가 만든 데이터. 시작할 때 태평에 서 있는 8009를 고른다:
+        # 태평 18:01:30 → 가천대 18:04:00 → 한티 18:22:45 → 선릉 18:25:15, 2호선 8031이 선릉에서 바로 떠나 역삼 18:26 무렵 → 강남 18:28 무렵
+        "day": "2026-11-20",
+        "replay_dir": "src/test/resources/scenarios/synthetic-2026-11-20-evening",
+        "start": "18:02:00",
+        "origin": ("태평", "xovud"),
+        "destination": ("강남", "rkdska"),
+        "moves": [],
+        "stops": [],
+        "offline": [],
+        # 화면이 길어 아래(노선도)가 잘려 보이므로 고를 때·달릴 때·갈아탄 뒤 한 번씩 내렸다 올린다
+        "scrolls": [("18:03:10", "down"), ("18:03:25", "up"), ("18:12:00", "down"), ("18:12:15", "up"),
+                    ("18:26:20", "down"), ("18:26:35", "up")],
+        "checks": [
+            ("18:03:00", "태평: 서 있는 8009를 골라 따라감, 강남까지 남은 정거장", ["따라가고 있어요", "강남까지"]),
+            ("18:05:00", "8009가 가천대에 들어섬", ["가천대", "강남까지"]),
+            ("18:24:00", "한티: 갈아탈 역 한 정거장 전 띠", ["다음 역 선릉 · 2호선으로 갈아타세요"]),
+            ("18:26:10", "선릉에서 2호선 열차로 갈아타 역삼: 내릴 역 한 정거장 전 띠", ["2호선", "다음 역 강남, 내릴 준비하세요"]),
+            ("18:28:30", "강남에 다다름 → 파란 화면", ["강남", "내리실 역이에요"]),
+            ("18:31:00", "강남 도착 → 더 따라가지 않음", ["강남", "도착했어요"]),
+        ],
+    },
     "rush": {
         "title": "퇴근 시간(합성 데이터) 강남 → 태평: 들어오는 열차 여러 대 중 골라 둔 열차를 따라가 선릉 환승, 태평 직전 하차 알림",
         # 실제 녹화가 아니다: scripts/demo/make_rush_hour.py가 만든 18:00~18:40 데이터(2호선 2분 30초, 수인분당 4분 간격)
@@ -156,11 +181,17 @@ def tap(bounds) -> None:
     adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
 
 
-def tap_text(text: str) -> None:
-    for t, b in screen_nodes():
-        if t == text:
-            tap(b)
-            return
+def tap_text(text: str, wait: float = 15) -> None:
+    # 앱을 새로 켠 직후에는 첫 화면이 늦게 뜰 수 있어(3초로는 모자랐다) 나타날 때까지 기다린다
+    until = time.time() + wait
+    while True:
+        for t, b in screen_nodes():
+            if t == text:
+                tap(b)
+                return
+        if time.time() > until:
+            break
+        time.sleep(1)
     raise SystemExit(f"화면에서 '{text}'을(를) 못 찾았다")
 
 
@@ -307,7 +338,7 @@ def main() -> None:
         accel(0)
         network(True)
         if record:
-            adb("emu", "screenrecord", "start", "--time-limit", "900", str(out / "demo.webm"))
+            adb("emu", "screenrecord", "start", "--time-limit", "2400", str(out / "demo.webm"))
         start_ride(sc)
         vibrations_before = nowstation_vibrations()
         if mode == "background":
@@ -328,6 +359,8 @@ def main() -> None:
             events += [(kst(t, day), "가속", PUSH), (kst(t, day) + timedelta(seconds=PUSH_SECONDS), "가속 끝", 0.0)]
         for t in sc["stops"]:  # 도착: 그 시각에 감속이 끝나게
             events += [(kst(t, day) - timedelta(seconds=PUSH_SECONDS), "감속", -PUSH), (kst(t, day), "정차", 0.0)]
+        for t, direction in sc.get("scrolls", []):
+            events.append((kst(t, day), "스크롤", direction))
         for off, on in sc["offline"]:
             events += [(kst(off, day), "네트워크 끊김", False), (kst(on, day), "네트워크 복구", True)]
         if mode == "story":
@@ -351,6 +384,10 @@ def main() -> None:
             elif kind.startswith("네트워크"):
                 network(value)
                 print(f"  {at:%H:%M:%S} {kind}")
+            elif kind == "스크롤":
+                a, b = ("1700", "700") if value == "down" else ("700", "1700")
+                adb("shell", "input", "swipe", "540", a, "540", b, "600")
+                print(f"  {at:%H:%M:%S} 화면 {'아래로' if value == 'down' else '위로'} 스크롤")
             elif kind == "YouTube로 전환":
                 adb("shell", "monkey", "-p", YOUTUBE, "-c", "android.intent.category.LAUNCHER", "1")
                 switched = True
