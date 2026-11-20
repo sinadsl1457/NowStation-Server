@@ -215,6 +215,10 @@ def start_ride(sc) -> None:
     adb("shell", "am", "force-stop", APP_ID)
     adb("shell", "am", "start", "-n", MAIN_ACTIVITY)
     time.sleep(3)
+    # 앱 데이터를 지운 뒤면 처음 실행 가이드가 덮고 있다
+    if any(t == "건너뛰기" for t, _ in screen_nodes()):
+        tap_text("건너뛰기")
+        time.sleep(1.5)
     pick_station("타는 역", *sc["origin"])
     pick_station("내릴 역", *sc["destination"])  # 앱에서 내릴 역이 필수가 됐다
     tap_text("탑승 시작")
