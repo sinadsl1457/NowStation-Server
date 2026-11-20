@@ -63,7 +63,8 @@ object TrainChoices {
             if (map.heading(s.direction) != leg.heading) return@mapNotNull null
             val here = map.station(s.stationId) ?: return@mapNotNull null
             val index = stations.indexOf(here.name)
-            if (index < 0 || here.name == leg.to) return@mapNotNull null
+            // 구간 끝 역에 온 열차도 남긴다: 빼면 따라가던 열차가 사라져 앱이 '아직 안 탔다'로 보고 고르기 화면을 다시 띄웠다(시뮬레이터 야탑 도착)
+            if (index < 0) return@mapNotNull null
             if ((s.express || s.key.trainNo in expressTrainNos) && leg.from !in expressStops[leg.line].orEmpty()) return@mapNotNull null
             val terminal = map.station(s.terminalStationId)
             // 종착역이 구간 끝보다 앞이면 그 열차로는 못 간다
