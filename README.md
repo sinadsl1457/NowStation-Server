@@ -105,12 +105,13 @@ src/main/kotlin/com/nowstation/server/
 | `POST /api/rides/{id}/motion` `{"events":[{"kind":"MOVING","at":"…"}],"sentAt":"…"}` | 폰이 출발·정차한 시각(끊긴 동안 쌓인 것을 한꺼번에) |
 | `GET /api/rides/{id}` | `{"status":"MOVING","line":"수인분당선","thisStation":"수서","nextStation":"대모산입구","prepareToAlight":false,"legs":[{"line":"수인분당선","from":"태평","to":"선릉"},{"line":"2호선","from":"선릉","to":"강남"}],"trainNo":"6206","target":"선릉","remainingStops":6,"totalRemainingStops":8,"destination":"강남","notice":null}` (target·remainingStops: 지금 구간 끝까지, totalRemainingStops: 최종 목적지까지, notice: 환승역 도착 TRANSFER를 3분) |
 | `DELETE /api/rides/{id}` | 탑승 종료 |
+| `POST /api/feedback` `{"message":"…","contact":"(선택) 답장받을 이메일","platform":"android","appVersion":"0.1.70","device":"…"}` | 앱 설정의 문의하기(201). DB `feedback`에 저장, 1년 뒤 자동 삭제 |
 
 `status`: `WAITING`(역에서 기다림) · `AT_STATION`(정차) · `MOVING`(이동) · `HOLDING_BETWEEN`(역 사이 정차) · `STALE`(2분 넘게 소식 없음)
 
 ## 테스트와 시연
 
-**서버 테스트 82개**(`./gradlew test`, 2026-11-20 전부 통과)
+**서버 테스트 85개**(`./gradlew test`, 2026-11-20 전부 통과)
 - 판단 규칙(`RideSessionTest` 19): 고른 열차 그대로 따라가기, 환승역에서 안내 후 다음 구간 대기, 한 정거장 전 내릴 준비(타는 역에 서 있을 땐 안 켬), 내릴 역 도착, 센서로 출발 앞당기기, 최종 목적지까지 남은 정거장, 5분 임시 정차, 역 사이 정차, 소식 끊김. 알고 있는 한계 2개도 테스트로 적어 둠(이미 출발한 뒤 누르기, 지나온 역을 출발역으로)
 - 경로(`RoutePlannerTest` 4): 태평 → 강남은 선릉 환승, 정자 → 강남은 신분당선 한 번에, 2호선은 가까운 쪽으로
 - 들어오는 열차 목록(`TrainChoicesTest` 7): 전광판 말투와 몇 분 뒤, 반대 방향·급행·구간 끝 전에 끝나는 열차 빼기, 골라 둘 열차
@@ -181,7 +182,7 @@ cp .env.example .env          # 서울 열린데이터광장 "실시간 지하�
 **main에 push하면 끝입니다.** 사람이 서버에 들어가지 않습니다.
 
 ```
-push ─→ [GitHub Actions] 테스트 82개 → 이미지(이름표 = 커밋 번호)를 GHCR에 올림
+push ─→ [GitHub Actions] 테스트 85개 → 이미지(이름표 = 커밋 번호)를 GHCR에 올림
                                                      │
         [EC2] 1분마다 "main 이미지가 바뀌었나?" ←──────┘  (pull 방식: GitHub은 서버에 들어오지 않음)
               바뀌었으면 받아서 서버만 교체 → 2분 안에 UP이 아니면 이전 이미지로 되돌림
