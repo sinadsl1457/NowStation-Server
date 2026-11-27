@@ -3,6 +3,7 @@ package com.nowstation.server.ride
 import com.nowstation.server.subway.Heading
 import com.nowstation.server.subway.StationMaps
 import com.nowstation.server.subway.SubwayLine.LINE_2
+import com.nowstation.server.subway.SubwayLine.LINE_3
 import com.nowstation.server.subway.SubwayLine.SINBUNDANG
 import com.nowstation.server.subway.SubwayLine.SUIN_BUNDANG
 import kotlin.test.Test
@@ -39,5 +40,16 @@ class RoutePlannerTest {
         val leg = RoutePlanner.plan(maps, "강남", "역삼")!!.legs.single()
         assertEquals(LINE_2, leg.line)
         assertEquals(1, leg.stops)
+    }
+
+    @Test
+    fun `3호선은 도곡·수서·교대·양재에서 갈아탄다`() {
+        assertEquals(listOf("수인분당선 태평→도곡", "3호선 도곡→고속터미널"), route("태평", "고속터미널"))
+        assertEquals(listOf("2호선 강남→교대", "3호선 교대→고속터미널"), route("강남", "고속터미널"))
+        assertEquals(listOf("신분당선 정자→양재", "3호선 양재→고속터미널"), route("정자", "고속터미널"))
+        val leg = RoutePlanner.plan(maps, "태평", "고속터미널")!!.legs[1]
+        assertEquals(LINE_3, leg.line)
+        assertEquals(Heading.DESCENDING, leg.heading, "3호선 대화 방면은 역 ID가 작아지는 쪽")
+        assertEquals(listOf("도곡", "매봉", "양재", "남부터미널", "교대", "고속터미널"), leg.stations)
     }
 }

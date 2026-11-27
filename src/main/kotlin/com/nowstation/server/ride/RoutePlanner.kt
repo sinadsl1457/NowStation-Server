@@ -21,6 +21,7 @@ object RoutePlanner {
     /** 정거장 하나 평균 분(신분당선은 역 사이가 길다: 정자 → 강남 5정거장 약 16분). */
     private fun minutesPerStop(line: SubwayLine) = when (line) {
         SubwayLine.LINE_2 -> 2.0
+        SubwayLine.LINE_3 -> 2.0
         SubwayLine.SUIN_BUNDANG -> 2.2
         SubwayLine.SINBUNDANG -> 3.2
     }

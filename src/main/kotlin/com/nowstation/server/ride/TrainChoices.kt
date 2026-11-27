@@ -47,6 +47,7 @@ object TrainChoices {
     /** 정거장 하나 평균 분(RoutePlanner와 같은 값). 전광판의 "약 N분"에 쓴다. */
     fun minutesPerStop(line: SubwayLine) = when (line) {
         SubwayLine.LINE_2 -> 2.0
+        SubwayLine.LINE_3 -> 2.0
         SubwayLine.SUIN_BUNDANG -> 2.2
         SubwayLine.SINBUNDANG -> 3.2
     }

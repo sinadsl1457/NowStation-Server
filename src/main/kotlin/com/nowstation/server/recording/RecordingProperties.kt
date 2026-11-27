@@ -8,7 +8,7 @@ import java.time.Duration
 /**
  * 실시간 응답 녹화 설정. 켜는 법:
  * `./gradlew bootRun --args='--recording.enabled=true --recording.duration=PT30M'`
- * 3개 노선 × 20초 간격이면 1시간에 540건이다(하루 한도 1,000건).
+ * 4개 노선 × 20초 간격이면 1시간에 720건이다(하루 한도 1,000건). 필요한 노선만 `--recording.lines=LINE_3`처럼 고른다.
  */
 @ConfigurationProperties("recording")
 data class RecordingProperties(
