@@ -14,6 +14,7 @@
   python3 scripts/demo/run_scenario.py rush       # 퇴근 시간 합성 데이터: 강남 → 태평(먼저 make_rush_hour.py)
   python3 scripts/demo/run_scenario.py rush_up --record   # 합성 데이터 태평 → 강남(선릉 환승), 시연 영상용
   python3 scripts/demo/run_scenario.py yatap --mode=background   # 시작 뒤 YouTube를 앞에 띄움
+  python3 scripts/demo/run_scenario.py yatap --mode=background --landscape --record   # 가로 YouTube 위 조용한 역 배너
   python3 scripts/demo/run_scenario.py yatap --mode=locked       # 시작 뒤 PIN 잠금 + 화면 끔
   python3 scripts/demo/run_scenario.py yatap --mode=story --record  # 앱 화면 → 도중에 YouTube로 → 위로 하차 팝업, 화면 녹화
 --mode=app(기본)은 앱 화면 글자를, background·locked는 시스템에 올라간 알림 글자를 확인한다(story는 전환 뒤부터 알림).
@@ -120,7 +121,8 @@ SCENARIOS = {
         "offline": [],
         "checks": [
             ("09:46:30", "6073을 골라 따라감", ["따라가고 있어요"], ["야탑까지"]),
-            ("09:48:10", "모란: 화면은 이번 정거장 모란 그대로, 한 정거장 전 알림은 띠로", ["모란", "다음 역 야탑, 내릴 준비하세요"], ["곧 야탑, 내릴 준비하세요"]),
+            # 내릴 준비는 바로 앞 역(모란)을 떠날 때부터(2026-11-27 개발자 피드백: 두 정거장 전부터 오면 헷갈림)
+            ("09:48:10", "모란에 서 있음: 화면은 이번 정거장 모란 그대로, 한 정거장 전 알림은 띠로, 알림은 아직 내릴 준비 아님", ["모란", "다음 역 야탑, 내릴 준비하세요"], ["이번 역 모란"]),
             # '내리실 역이에요'는 파란 화면에만 있다(띠 글자에 걸려 잘못 통과하던 것을 막음)
             ("09:49:00", "폰이 모란 출발을 느낌(데이터는 아직 모란) → 야탑에 다다름, 파란 화면", ["이번 역", "야탑", "내리실 역이에요"], ["곧 야탑, 내릴 준비하세요"]),
             ("09:51:45", "야탑 도착 → 더 따라가지 않음", ["야탑", "도착했어요"], ["야탑 도착"]),
@@ -271,11 +273,21 @@ def alert_posted() -> bool:
     return 2 in nowstation_notifications()
 
 
+STATION_BANNERS: list[str] = []
+
+
 def wait_watching_alert(seconds: float, seen: bool, out: Path, offset: float) -> bool:
-    """기다리는 동안 1초마다 내릴 역 팝업 알림이 올라왔는지 보고, 올라온 순간 화면을 찍는다(팝업은 몇 초만 보인다)."""
+    """기다리는 동안 1초마다 내릴 역 팝업 알림(2번)과 역마다 조용한 배너(3번, 2.5초만 있음)가 올라왔는지 보고, 올라온 순간 화면을 찍는다."""
     end = time.time() + seconds
     while time.time() < end:
-        if not seen and alert_posted():
+        shown = nowstation_notifications()
+        banner = shown.get(3)
+        if banner and banner not in STATION_BANNERS:
+            STATION_BANNERS.append(banner)
+            screenshot(out / f"station-{len(STATION_BANNERS)}.png")
+            replay_at = datetime.fromtimestamp(time.time() + offset, KST)
+            print(f"  {replay_at:%H:%M:%S} 조용한 역 배너: {banner} → station-{len(STATION_BANNERS)}.png")
+        if not seen and 2 in shown:
             seen = True
             time.sleep(1.5)  # 팝업이 내려오는 동안
             screenshot(out / "alert.png")
@@ -349,6 +361,10 @@ def main() -> None:
             adb("shell", "monkey", "-p", YOUTUBE, "-c", "android.intent.category.LAUNCHER", "1")
             time.sleep(3)
             print("  YouTube를 앞에 띄움(NowStation은 뒤로)")
+            if "--landscape" in sys.argv:  # 가로로 영상을 볼 때: 상태 표시줄 칩이 안 보이니 조용한 역 배너가 보이는지
+                adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+                adb("shell", "settings", "put", "system", "user_rotation", "1")
+                print("  가로 화면으로 돌림")
         elif mode == "locked":
             adb("shell", "locksettings", "set-pin", PIN)
             adb("shell", "input", "keyevent", "223")
@@ -422,6 +438,7 @@ def main() -> None:
                       + (f"\n           없음: {missing}" if missing else ""))
 
         print(f"  내릴 역 팝업 알림: {'올라옴' if alert_seen else '없음'}")
+        print(f"  조용한 역 배너: {len(STATION_BANNERS)}건 {STATION_BANNERS}")
         vibrated = nowstation_vibrations() - vibrations_before
         print(f"  진동 기록: {vibrated}건")
         # 상태 표시줄 칩·진행 중 알림
@@ -440,6 +457,8 @@ def main() -> None:
             adb("emu", "screenrecord", "stop")
         network(True)
         accel(0)
+        if "--landscape" in sys.argv:
+            adb("shell", "settings", "put", "system", "user_rotation", "0")
         if mode == "locked":
             unlock()
         if mode != "app":
