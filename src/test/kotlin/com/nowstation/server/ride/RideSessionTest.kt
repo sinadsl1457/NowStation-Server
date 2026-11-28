@@ -69,7 +69,7 @@ class RideSessionTest {
         h.trains(370, SUIN_BUNDANG, Triple("Y", "모란", ENTERING), updn = "1")
 
         assertEquals("Y", h.riding().trainNo)
-        assertEquals(RideView(RideStatus.MOVING, SUIN_BUNDANG, "모란", "야탑", true), h.view(370), "다음 역이 야탑 → 한 정거장 전부터 내릴 준비")
+        assertEquals(RideView(RideStatus.MOVING, SUIN_BUNDANG, "모란", "야탑", false), h.view(370), "모란으로 가는 중(야탑까지 두 정거장)은 아직")
     }
 
     @Test
@@ -105,7 +105,7 @@ class RideSessionTest {
     }
 
     @Test
-    fun `선릉에서 내려 2호선으로 갈아타면 2호선 열차를 따라가고 강남 직전에 하차 알림`() {
+    fun `선릉에서 내려 2호선으로 갈아타면 2호선 열차를 따라가고 역삼을 떠나면 하차 알림`() {
         val h = Harness("태평", destination = "강남")
         h.trains(0, SUIN_BUNDANG, Triple("T", "태평", ARRIVED))
         h.moving(30)
@@ -122,7 +122,7 @@ class RideSessionTest {
         h.trains(1260, LINE_2, Triple("2222", "선릉", DEPARTED))
 
         assertEquals(TrainKey(LINE_2, "2222"), h.riding())
-        assertEquals(RideView(RideStatus.MOVING, LINE_2, "역삼", "강남", true), h.view(1260), "다음 역이 강남 → 한 정거장 전부터 내릴 준비")
+        assertEquals(RideView(RideStatus.MOVING, LINE_2, "역삼", "강남", false), h.view(1260), "역삼으로 가는 중(강남까지 두 정거장)은 아직")
 
         h.trains(1320, LINE_2, Triple("2222", "역삼", ARRIVED))
         h.stopped(1300)
@@ -269,14 +269,22 @@ class RideSessionTest {
     }
 
     @Test
-    fun `내릴 준비는 한 정거장 전부터(출발 상태가 없는 수인분당선도), 내릴 역에 오면 더 따라가지 않는다`() {
+    fun `내릴 준비는 내릴 역 바로 앞 역을 떠날 때부터(출발 상태가 없는 수인분당선은 폰 출발로), 내릴 역에 오면 더 따라가지 않는다`() {
+        // 2026-11-27 실기기(태평 → 왕십리 환승): 압구정로데오 → 서울숲 가는 중부터 "곧 왕십리"가 떠 두 정거장 앞이라 헷갈렸다(개발자 피드백)
         val h = Harness("선릉", "태평")
         h.trains(0, SUIN_BUNDANG, Triple("9038", "복정", ARRIVED), updn = "1")
         h.session.choose(TrainKey(SUIN_BUNDANG, "9038"), maps[SUIN_BUNDANG].stationId("선릉")!!, at(0))
         assertEquals(false, h.view(0).prepareToAlight)
 
+        h.trains(100, SUIN_BUNDANG, Triple("9038", "가천대", ENTERING), updn = "1")
+        assertEquals("가천대", h.view(100).thisStation)
+        assertEquals(false, h.view(100).prepareToAlight, "가천대로 가는 중(태평까지 두 정거장)에는 아직 아니다")
         h.trains(150, SUIN_BUNDANG, Triple("9038", "가천대", ARRIVED), updn = "1")
-        assertEquals(true, h.view(150).prepareToAlight, "가천대에 서 있을 때 다음 역 태평 → 내릴 준비")
+        assertEquals(false, h.view(150).prepareToAlight, "가천대에 서 있을 때도 아직 아니다")
+
+        h.moving(160)
+        assertEquals("태평", h.view(170).thisStation)
+        assertEquals(true, h.view(170).prepareToAlight, "가천대를 떠나 태평으로 가는 중 → 내릴 준비")
 
         h.trains(300, SUIN_BUNDANG, Triple("9038", "태평", ARRIVED), updn = "1")
         assertEquals(RidePhase.Arrived("태평", SUIN_BUNDANG, at(300)), h.session.phase)
